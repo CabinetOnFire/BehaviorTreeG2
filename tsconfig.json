@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020", "DOM"],
+    "jsx": "react",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": ["jest", "node"]
+  },
+  "include": ["src/**/*", "media/editor/**/*", "shared/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

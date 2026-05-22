@@ -1,0 +1,98 @@
+{
+  "name": "tgstation-bt-editor",
+  "displayName": "tgstation BT Editor",
+  "description": "Visual behavior tree editor for tgstation DM files",
+  "version": "0.1.0",
+  "license": "GPL-3.0",
+  "repository": {
+  "type": "git",
+  "url": "https://github.com/placeholder/tgstation-bt-editor"
+},
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:dm"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "bt-editor.open",
+        "title": "Open BT Editor",
+        "icon": "$(symbol-event)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "bt-editor-activitybar",
+          "title": "BT Editor",
+          "icon": "media/bt-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "bt-editor-activitybar": [
+        {
+          "id": "bt-editor.treeView",
+          "name": "Behavior Trees",
+          "type": "tree"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "bt-editor.treeView",
+        "contents": "Open a .dm file in the editor, then click below to launch the visual tree editor.\n[Open BT Editor](command:bt-editor.open)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "bt-editor.open",
+          "when": "resourceLangId == dm",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "bt-editor.open",
+          "when": "view == bt-editor.treeView && resourceLangId == dm",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc --noEmit && node .esbuild.config.js",
+    "watch": "node .esbuild.config.js --watch",
+    "test": "jest",
+    "lint": "eslint src media/editor shared --ext .ts,.tsx",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^1.1.4",
+    "@xyflow/react": "^12.3.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.2.0",
+    "typescript": "^5.4.0"
+  }
+}

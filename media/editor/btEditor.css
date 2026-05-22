@@ -1,0 +1,29 @@
+/* btEditor.css — global overrides for ReactFlow within the VS Code webview */
+
+.react-flow__renderer {
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+
+.react-flow__edge-path {
+  stroke: #555;
+}
+
+.react-flow__controls {
+  background: var(--vscode-sideBar-background, #252526);
+  border: 1px solid #444;
+  border-radius: 4px;
+}
+
+.react-flow__controls-button {
+  background: var(--vscode-sideBar-background, #252526);
+  border-bottom: 1px solid #444;
+  fill: var(--vscode-editor-foreground, #ccc);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.react-flow__minimap {
+  border-radius: 4px;
+}
