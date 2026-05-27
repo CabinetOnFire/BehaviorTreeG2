@@ -1,19 +1,21 @@
 import React from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { BtNode } from "../../../../shared/types";
+import { ChildOrderBadge } from "./ChildOrderBadge";
+import { shortTypePath } from "../../utils/typeDisplay";
 
 interface SubtreeNodeData {
   label: string;
   _btNode: Extract<BtNode, { kind: "subtree" }>;
   selected: boolean;
+  childIndex?: number | null;
   [key: string]: unknown;
 }
 
 export function SubtreeNode({ data, selected }: NodeProps) {
   const d = data as SubtreeNodeData;
   const bt = d._btNode;
-  const parts = bt.behaviorType.split("/").filter(Boolean);
-  const lastSegment = parts.length > 0 ? parts[parts.length - 1] : bt.behaviorType;
+  const lastSegment = shortTypePath(bt.behaviorType);
 
   const accent = "#26C6DA";
   const bg = selected ? "#003740" : "#00292d";
@@ -21,6 +23,7 @@ export function SubtreeNode({ data, selected }: NodeProps) {
   return (
     <div
       style={{
+        position: "relative",
         background: bg,
         border: `1px solid ${selected ? accent : "#335"}`,
         borderLeft: `4px solid ${accent}`,
@@ -37,6 +40,7 @@ export function SubtreeNode({ data, selected }: NodeProps) {
       }}
     >
       <Handle type="target" position={Position.Top} style={{ background: accent }} />
+      <ChildOrderBadge index={d.childIndex} />
       <span style={{ fontSize: 18, lineHeight: 1, color: accent }}>⤵</span>
       <div style={{ flex: 1, overflow: "hidden" }}>
         <div

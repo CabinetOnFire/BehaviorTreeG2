@@ -5,9 +5,9 @@
   "version": "0.1.0",
   "license": "GPL-3.0",
   "repository": {
-  "type": "git",
-  "url": "https://github.com/placeholder/tgstation-bt-editor"
-},
+    "type": "git",
+    "url": "https://github.com/CabinetOnFire/BehaviorTreeG"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -15,15 +15,33 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:dm"
+    "onLanguage:dm",
+    "onLanguage:json"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "btEditor.visualEditor",
+        "displayName": "BT Visual Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.bt.json"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "commands": [
       {
         "command": "bt-editor.open",
         "title": "Open BT Editor",
         "icon": "$(symbol-event)"
+      },
+      {
+        "command": "bt-editor.deploy-all",
+        "title": "Deploy all BT JSONs to DM",
+        "icon": "$(cloud-upload)"
       }
     ],
     "viewsContainers": {
@@ -47,21 +65,36 @@
     "viewsWelcome": [
       {
         "view": "bt-editor.treeView",
-        "contents": "Open a .dm file in the editor, then click below to launch the visual tree editor.\n[Open BT Editor](command:bt-editor.open)"
+        "contents": "Open a .bt.json or .dm file to get started.\n[Open BT Editor](command:bt-editor.open)"
       }
     ],
+    "configuration": {
+      "title": "BT Editor",
+      "properties": {
+        "btEditor.outputDirectory": {
+          "type": "string",
+          "default": "code/_generated/behavior_trees",
+          "description": "Workspace-relative path where generated .dm files are written during deploy. Example: \"code/_generated/behavior_trees\""
+        }
+      }
+    },
     "menus": {
       "editor/title": [
         {
           "command": "bt-editor.open",
-          "when": "resourceLangId == dm",
+          "when": "resourceLangId == dm || resourceExtname == .bt.json",
+          "group": "navigation"
+        },
+        {
+          "command": "bt-editor.deploy-all",
+          "when": "resourceExtname == .bt.json",
           "group": "navigation"
         }
       ],
       "view/title": [
         {
           "command": "bt-editor.open",
-          "when": "view == bt-editor.treeView && resourceLangId == dm",
+          "when": "view == bt-editor.treeView && (resourceLangId == dm || resourceExtname == .bt.json)",
           "group": "navigation"
         }
       ]

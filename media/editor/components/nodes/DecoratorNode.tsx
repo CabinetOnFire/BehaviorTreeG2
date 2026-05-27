@@ -1,23 +1,44 @@
 import React from "react";
 import { Handle, Position } from "@xyflow/react";
+import { ChildOrderBadge } from "./ChildOrderBadge";
+import { useTypeVars } from "../../contexts/TypeVarsContext";
+import { shortTypePath } from "../../utils/typeDisplay";
 
 interface DecoratorNodeData {
   nodeType?: string;
   config?: Record<string, string | string[]>;
+  childIndex?: number | null;
 }
 
 export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
-  const shortName = data.nodeType
-    ? data.nodeType.split("/").filter(Boolean).pop() ?? data.nodeType
-    : "(decorator)";
+  const typeVars = useTypeVars();
+  const shortName = data.nodeType ? shortTypePath(data.nodeType) : "(decorator)";
+  const params = typeVars?.[data.nodeType ?? ""] ?? [];
+  const config = data.config ?? {};
 
-  const entries = Object.entries(data.config ?? {});
+  type Row = { key: string; value: string; isDefault: boolean };
+  const rows: Row[] = [];
+
+  if (params.length > 0) {
+    for (const p of params) {
+      const val = config[p.name];
+      if (val !== undefined) {
+        rows.push({ key: p.name, value: Array.isArray(val) ? `[${val.length}]` : lastSegment(val), isDefault: false });
+      } else if (p.defaultValue !== "null") {
+        rows.push({ key: p.name, value: p.defaultValue, isDefault: true });
+      }
+    }
+  } else {
+    for (const [k, v] of Object.entries(config)) {
+      rows.push({ key: k, value: Array.isArray(v) ? `[${v.length}]` : lastSegment(v), isDefault: false });
+    }
+  }
 
   return (
     <div
       style={{
+        position: "relative",
         width: 220,
-        height: 36,
         background: "#1a1a1a",
         border: "1px solid #607D8B",
         borderLeft: "4px solid #607D8B",
@@ -26,49 +47,52 @@ export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
         fontSize: 11,
         color: "var(--vscode-editor-foreground, #ccc)",
         boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-        display: "flex",
-        alignItems: "center",
-        padding: "0 8px",
-        gap: 6,
-        overflow: "hidden",
         boxSizing: "border-box",
       }}
     >
       <Handle type="target" position={Position.Top} style={{ background: "#607D8B" }} />
-      <span
-        style={{ color: "#607D8B", fontWeight: 600, flexShrink: 0, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        title={data.nodeType}
-      >
-        {shortName}
-      </span>
-      <span style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflow: "hidden" }}>
-        {entries.slice(0, 2).map(([k, v]) => (
-          <span
-            key={k}
-            title={`${k} = ${Array.isArray(v) ? v.join(", ") : v}`}
-            style={{
-              background: "rgba(96,125,139,0.3)",
-              border: "1px solid #607D8B",
-              borderRadius: 3,
-              padding: "0 4px",
-              fontSize: 9,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {k}={Array.isArray(v) ? `[${v.length}]` : shortVal(v)}
-          </span>
+      <ChildOrderBadge index={data.childIndex} />
+      <div style={{ padding: "6px 10px 6px 10px" }}>
+        <div
+          style={{
+            fontWeight: 700,
+            color: "#607D8B",
+            fontSize: 11,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            marginBottom: rows.length > 0 ? 3 : 0,
+          }}
+          title={data.nodeType}
+        >
+          {shortName}
+        </div>
+        {rows.map((row) => (
+          <div key={row.key} style={{ fontSize: 10, lineHeight: "18px", display: "flex", gap: 3 }}>
+            <span style={{ color: "#aaa", flexShrink: 0 }}>{row.key}</span>
+            <span style={{ color: "#666" }}>=</span>
+            <span
+              style={{
+                color: row.isDefault ? "#666" : "#e0e0e0",
+                fontStyle: row.isDefault ? "italic" : "normal",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={row.value}
+            >
+              {row.value}
+            </span>
+          </div>
         ))}
-        {entries.length > 2 && (
-          <span style={{ fontSize: 9, opacity: 0.6 }}>+{entries.length - 2}</span>
-        )}
-      </span>
+      </div>
       <Handle type="source" position={Position.Bottom} style={{ background: "#607D8B" }} />
     </div>
   );
 }
 
-function shortVal(v: string): string {
-  // Just show last segment or last 8 chars
-  const parts = v.split("_");
-  return parts[parts.length - 1].slice(0, 8);
+function lastSegment(v: string): string {
+  const trimmed = v.trim();
+  const parts = trimmed.split("/").filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : trimmed;
 }

@@ -2,8 +2,13 @@ import * as vscode from "vscode";
 import * as path from "path";
 import type { ExtMsg, WebMsg } from "../shared/messaging";
 import type { SubtreeDescriptor } from "../shared/types";
-import { parseFile } from "./parser/btParser";
-import { writeSubtreeToFile, scanAll } from "./fileSync";
+import { parseJsonFile } from "./parser/btJsonParser";
+import {
+  writeSubtreeToFile,
+  deployJsonToDm,
+  deployAllJsonToDm,
+  scanAll,
+} from "./fileSync";
 import type { ScanResult } from "./fileSync";
 
 function debounce<T extends (...args: Parameters<T>) => void>(
@@ -26,6 +31,7 @@ export class BtEditorPanel {
   private readonly _context: vscode.ExtensionContext;
   private _disposables: vscode.Disposable[] = [];
 
+  /** URI of the active .bt.json file (source of truth after migration). */
   private _activeUri: vscode.Uri | undefined;
   private _pendingUri: vscode.Uri | undefined;
   private _subtrees: SubtreeDescriptor[] = [];
@@ -59,7 +65,22 @@ export class BtEditorPanel {
     BtEditorPanel.currentPanel = new BtEditorPanel(panel, context, uri);
   }
 
-  private constructor(
+  /** Open a new independent BT editor panel without replacing the existing one. */
+  static createNew(context: vscode.ExtensionContext, uri: vscode.Uri) {
+    const panel = vscode.window.createWebviewPanel(
+      BtEditorPanel.viewType,
+      "BT Editor",
+      vscode.ViewColumn.Beside,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
+      },
+    );
+    new BtEditorPanel(panel, context, uri);
+  }
+
+  constructor(
     panel: vscode.WebviewPanel,
     context: vscode.ExtensionContext,
     uri: vscode.Uri | undefined,
@@ -70,22 +91,37 @@ export class BtEditorPanel {
     this._panel.webview.html = this._buildHtml();
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
-    // Live sync: watch text document changes
+    // Live sync: watch text document changes on any tracked .bt.json file
     this._disposables.push(
       vscode.workspace.onDidChangeTextDocument(
         debounce((e: vscode.TextDocumentChangeEvent) => {
-          if (!this._activeUri) return;
-          if (e.document.uri.toString() !== this._activeUri.toString()) return;
+          const changedUriStr = e.document.uri.toString();
+          const changedIndex = this._subtrees.findIndex(
+            (s) => s.jsonPath && vscode.Uri.file(s.jsonPath).toString() === changedUriStr,
+          );
+          if (changedIndex < 0) return;
 
           if (this._isDirtyMirror) {
-            vscode.window.showInformationMessage(
-              "BT Editor: file changed externally — your unsaved edits are preserved.",
-            );
+            if (changedIndex === this._activeIndex) {
+              vscode.window.showInformationMessage(
+                "BT Editor: file changed externally — your unsaved edits are preserved.",
+              );
+            }
             return;
           }
-          const subtrees = parseFile(e.document.getText());
-          this._subtrees = subtrees;
-          this._post({ type: "file_changed", subtrees });
+
+          try {
+            const root = parseJsonFile(e.document.getText());
+            const updated: SubtreeDescriptor = { ...this._subtrees[changedIndex], root };
+            this._subtrees = this._subtrees.map((s, i) => (i === changedIndex ? updated : s));
+            this._post({
+              type: "file_changed",
+              subtrees: this._subtrees,
+              activeIndex: this._activeIndex,
+            });
+          } catch {
+            // Ignore parse errors during live edits
+          }
         }, 300),
       ),
     );
@@ -97,38 +133,159 @@ export class BtEditorPanel {
       this._disposables,
     );
 
-    // Don't call _openFile yet — wait for the webview to send "ready"
-    // (prevents the race between postMessage and React's useEffect listener registration)
     this._pendingUri = uri;
   }
 
+  // ── File opening ──────────────────────────────────────────────────────────
+
   private async _openFile(uri: vscode.Uri, targetTypePath?: string) {
+    if (uri.fsPath.endsWith(".bt.json")) {
+      await this._openJsonFile(uri);
+    } else {
+      await this._openDmFile(uri, targetTypePath);
+    }
+  }
+
+  /** Open a .bt.json file directly. */
+  private async _openJsonFile(uri: vscode.Uri) {
+    let bytes: Uint8Array;
+    try {
+      bytes = await vscode.workspace.fs.readFile(uri);
+    } catch (e) {
+      vscode.window.showErrorMessage(`BT Editor: cannot read ${uri.fsPath}: ${e}`);
+      return;
+    }
+
+    let root;
+    try {
+      root = parseJsonFile(Buffer.from(bytes).toString("utf8"));
+    } catch (e) {
+      vscode.window.showErrorMessage(`BT Editor: JSON parse error in ${path.basename(uri.fsPath)}: ${e}`);
+      return;
+    }
+
+    // Try to resolve typePath and dmPath from workspace scan cache
+    const cached = this._context.workspaceState.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
+    const allRefs = [...(cached?.subtrees ?? []), ...(cached?.controllers ?? [])];
+    const ref = allRefs.find(
+      (s) => s.jsonPath && vscode.Uri.file(s.jsonPath).toString() === uri.toString(),
+    );
+    const typePath = ref?.typePath ?? path.basename(uri.fsPath, ".bt.json");
+    const dmPath = ref?.filePath;
+
+    const descriptor: SubtreeDescriptor = {
+      typePath,
+      jsonPath: uri.fsPath,
+      dmPath,
+      root,
+    };
+
     this._activeUri = uri;
-    const doc = await vscode.workspace.openTextDocument(uri);
-    const subtrees = parseFile(doc.getText());
-    this._subtrees = subtrees;
-    const activeIndex = targetTypePath
-      ? Math.max(0, subtrees.findIndex((s) => s.typePath === targetTypePath))
-      : 0;
-    this._activeIndex = activeIndex;
+    this._subtrees = [descriptor];
+    this._activeIndex = 0;
     this._isDirtyMirror = false;
     this._panel.title = `BT — ${path.basename(uri.fsPath)}`;
-    this._post({ type: "init", subtrees, activeIndex });
+    this._post({ type: "init", subtrees: [descriptor], activeIndex: 0 });
   }
 
   /**
-   * If cache is warm, post cached results immediately and return.
-   * If forceRefresh or no cache, run a single scanAll(), store, then post.
+   * Open a .dm file: find its `behavior_tree_json = "..."` reference and load
+   * the co-located .bt.json file as the editor's source of truth.
+   * Falls back to the workspace scan cache to match multiple subtrees in one dm.
    */
+  private async _openDmFile(dmUri: vscode.Uri, targetTypePath?: string) {
+    let bytes: Uint8Array;
+    try {
+      bytes = await vscode.workspace.fs.readFile(dmUri);
+    } catch (e) {
+      vscode.window.showErrorMessage(`BT Editor: cannot read ${dmUri.fsPath}: ${e}`);
+      return;
+    }
+    const dmText = Buffer.from(bytes).toString("utf8");
+    const dmDir = path.dirname(dmUri.fsPath);
+
+    // Find all behavior_tree_json = "..." in this file
+    const btJsonRe = /^(\/datum\/[\w/]+)[\s\S]*?^\tbehavior_tree_json\s*=\s*"([^"]+)"/gm;
+    // Actually let's do a line-by-line scan to be precise
+    const refs: Array<{ typePath: string; jsonPath: string }> = [];
+    let currentType = "";
+    for (const line of dmText.split(/\r?\n/)) {
+      if (line.match(/^\/datum\//)) {
+        const m = line.match(/^(\/datum\/[\w/]+)\s*(?:\/\/.*)?$/);
+        if (m) currentType = m[1];
+        else currentType = "";
+      } else if (currentType && line.match(/^\t+behavior_tree_json\s*=\s*"([^"]+)"/)) {
+        const m = line.match(/behavior_tree_json\s*=\s*"([^"]+)"/);
+        if (m) {
+          refs.push({
+            typePath: currentType,
+            jsonPath: path.resolve(dmDir, m[1]),
+          });
+        }
+      }
+    }
+
+    if (refs.length === 0) {
+      vscode.window.showWarningMessage(
+        `BT Editor: no "behavior_tree_json" references found in ${path.basename(dmUri.fsPath)}.`,
+      );
+      return;
+    }
+
+    // Load all referenced JSON files
+    const subtrees: SubtreeDescriptor[] = [];
+    for (const ref of refs) {
+      try {
+        const jBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(ref.jsonPath));
+        const root = parseJsonFile(Buffer.from(jBytes).toString("utf8"));
+        subtrees.push({
+          typePath: ref.typePath,
+          jsonPath: ref.jsonPath,
+          dmPath: dmUri.fsPath,
+          root,
+        });
+      } catch {
+        // Skip unreadable / unparseable JSON silently
+      }
+    }
+
+    if (subtrees.length === 0) {
+      vscode.window.showWarningMessage(
+        `BT Editor: could not load any .bt.json files referenced by ${path.basename(dmUri.fsPath)}.`,
+      );
+      return;
+    }
+
+    // Use the first JSON URI as the active URI for file watching
+    const activeIndex = targetTypePath
+      ? Math.max(0, subtrees.findIndex((s) => s.typePath === targetTypePath))
+      : 0;
+    const activeJsonUri = vscode.Uri.file(subtrees[activeIndex].jsonPath!);
+
+    this._activeUri = activeJsonUri;
+    this._subtrees = subtrees;
+    this._activeIndex = activeIndex;
+    this._isDirtyMirror = false;
+    this._panel.title = `BT — ${path.basename(dmUri.fsPath)}`;
+    this._post({ type: "init", subtrees, activeIndex });
+  }
+
+  // ── Auto-scan ─────────────────────────────────────────────────────────────
+
   private async _autoScan(forceRefresh = false): Promise<void> {
     const log = BtEditorPanel.outputChannel;
     const ws = this._context.workspaceState;
 
     if (!forceRefresh) {
       const cached = ws.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
-      log.appendLine(`[autoScan] cache check — ${cached ? `subtrees:${cached.subtrees.length}/${cached.controllers.length} behaviors:${cached.behaviors.length} typeVars:${Object.keys(cached.typeVars).length}` : 'MISS'}`);
+      log.appendLine(
+        `[autoScan] cache check — ${
+          cached
+            ? `subtrees:${cached.subtrees.length}/${cached.controllers.length} behaviors:${cached.behaviors.length}`
+            : "MISS"
+        }`,
+      );
       if (cached) {
-        log.appendLine(`[autoScan] using cache → posting results`);
         this._postScanResult(cached);
         return;
       }
@@ -138,10 +295,6 @@ export class BtEditorPanel {
 
     log.appendLine(`[autoScan] starting full scan…`);
     const t0 = Date.now();
-    const folders = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) ?? [];
-    log.appendLine(`[autoScan] workspaceFolders: [${folders.join(", ")}]`);
-    const probe = await vscode.workspace.findFiles("**/*.dm", "**/node_modules/**", 1);
-    log.appendLine(`[autoScan] findFiles probe (limit 1): ${probe.length} result(s)${probe[0] ? ` — e.g. ${probe[0].fsPath}` : ""}`);
     let result: ScanResult;
     try {
       result = await scanAll();
@@ -149,10 +302,13 @@ export class BtEditorPanel {
       log.appendLine(`[autoScan] scanAll threw: ${e}`);
       return;
     }
-    log.appendLine(`[autoScan] scan done in ${Date.now() - t0}ms — subtrees:${result.subtrees.length} controllers:${result.controllers.length} behaviors:${result.behaviors.length} typeVars:${Object.keys(result.typeVars).length} files:${Object.keys(result.typeFilePaths).length > 0 ? "ok" : "0-types"}`);
+    log.appendLine(
+      `[autoScan] done in ${Date.now() - t0}ms — ` +
+        `subtrees:${result.subtrees.length} controllers:${result.controllers.length} ` +
+        `behaviors:${result.behaviors.length}`,
+    );
 
     await ws.update(BtEditorPanel._CACHE_SCAN, result);
-    log.appendLine(`[autoScan] cache written`);
     this._postScanResult(result);
   }
 
@@ -162,6 +318,8 @@ export class BtEditorPanel {
     this._post({ type: "type_vars_loaded", typeVars: r.typeVars });
   }
 
+  // ── Message handling ──────────────────────────────────────────────────────
+
   private async _handleWebMsg(msg: WebMsg) {
     switch (msg.type) {
       case "ready":
@@ -169,37 +327,97 @@ export class BtEditorPanel {
           await this._openFile(this._pendingUri);
           this._pendingUri = undefined;
         }
-        // Auto-scan behaviors + workspace subtrees/controllers in background
-        this._autoScan().catch((e) => BtEditorPanel.outputChannel.appendLine(`[autoScan] unhandled: ${e}`));
+        this._autoScan().catch((e) =>
+          BtEditorPanel.outputChannel.appendLine(`[autoScan] unhandled: ${e}`),
+        );
         break;
 
       case "select_subtree":
         this._activeIndex = msg.index;
+        // Switch the watched file to the newly selected subtree's JSON
+        if (this._subtrees[msg.index]?.jsonPath) {
+          this._activeUri = vscode.Uri.file(this._subtrees[msg.index].jsonPath!);
+        }
         break;
 
       case "save_ast": {
-        if (!this._activeUri) return;
         const descriptor = this._subtrees[msg.index];
         if (!descriptor) return;
-        await writeSubtreeToFile(this._activeUri, descriptor, msg.root);
+        await writeSubtreeToFile(descriptor, msg.root);
         this._isDirtyMirror = false;
         break;
       }
 
       case "reveal_in_file": {
-        if (!this._activeUri) return;
         const descriptor = this._subtrees[msg.index];
         if (!descriptor) return;
-        const doc = await vscode.workspace.openTextDocument(this._activeUri);
-        const pos = doc.positionAt(descriptor.startOffset);
-        const textEditor = await vscode.window.showTextDocument(doc, {
-          viewColumn: vscode.ViewColumn.One,
-          preserveFocus: true,
-        });
-        textEditor.revealRange(
-          new vscode.Range(pos, pos),
-          vscode.TextEditorRevealType.InCenter,
-        );
+
+        if (descriptor.dmPath) {
+          // Navigate to the behavior_tree_json line in the DM file
+          const dmUri = vscode.Uri.file(descriptor.dmPath);
+          const doc = await vscode.workspace.openTextDocument(dmUri);
+          const lines = doc.getText().split(/\r?\n/);
+          const lineIdx = lines.findIndex(
+            (l) => l.includes("behavior_tree_json") && descriptor.jsonPath
+              ? l.includes(path.basename(descriptor.jsonPath))
+              : true,
+          );
+          const pos = new vscode.Position(Math.max(0, lineIdx), 0);
+          const editor = await vscode.window.showTextDocument(doc, {
+            viewColumn: vscode.ViewColumn.One,
+            preserveFocus: true,
+          });
+          editor.revealRange(
+            new vscode.Range(pos, pos),
+            vscode.TextEditorRevealType.InCenter,
+          );
+        } else if (descriptor.jsonPath) {
+          // No DM reference — just open the JSON file itself
+          await vscode.window.showTextDocument(vscode.Uri.file(descriptor.jsonPath), {
+            viewColumn: vscode.ViewColumn.One,
+            preserveFocus: true,
+          });
+        }
+        break;
+      }
+
+      case "deploy_to_dm": {
+        const descriptor = this._subtrees[msg.index];
+        if (!descriptor?.jsonPath) {
+          this._post({
+            type: "deploy_result",
+            success: false,
+            message: "No JSON path for this subtree.",
+          });
+          return;
+        }
+        // Save the current editor state to JSON first so deploy reads fresh content
+        await writeSubtreeToFile(descriptor, msg.root);
+        this._isDirtyMirror = false;
+        const result = await deployJsonToDm(vscode.Uri.file(descriptor.jsonPath));
+        this._post({ type: "deploy_result", ...result });
+        if (result.success) {
+          vscode.window.showInformationMessage(`BT Editor: ${result.message}`);
+        } else {
+          vscode.window.showErrorMessage(`BT Editor: ${result.message}`);
+        }
+        break;
+      }
+
+      case "deploy_all_to_dm": {
+        // Save the currently open (possibly dirty) subtree before reading all files from disk.
+        const activeDescriptor = this._subtrees[msg.activeIndex];
+        if (activeDescriptor?.jsonPath) {
+          await writeSubtreeToFile(activeDescriptor, msg.activeRoot);
+          this._isDirtyMirror = false;
+        }
+        const result = await deployAllJsonToDm(BtEditorPanel.outputChannel);
+        this._post({ type: "deploy_result", ...result });
+        if (result.success) {
+          vscode.window.showInformationMessage(`BT Editor: ${result.message}`);
+        } else {
+          vscode.window.showWarningMessage(`BT Editor: ${result.message}`);
+        }
         break;
       }
 
@@ -216,22 +434,51 @@ export class BtEditorPanel {
       }
 
       case "open_subtree": {
-        const uri = vscode.Uri.file(msg.filePath);
-        await this._openFile(uri, msg.typePath);
+        const cache = this._context.workspaceState.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
+        const jsonPath =
+          msg.jsonPath ??
+          cache?.subtrees.find((r) => r.typePath === msg.typePath)?.jsonPath ??
+          cache?.controllers.find((r) => r.typePath === msg.typePath)?.jsonPath;
+
+        if (msg.newPanel) {
+          const uri = jsonPath
+            ? vscode.Uri.file(jsonPath)
+            : vscode.Uri.file(msg.filePath);
+          BtEditorPanel.createNew(this._context, uri);
+        } else if (jsonPath) {
+          await this._openJsonFile(vscode.Uri.file(jsonPath));
+        } else {
+          // Fallback: non-migrated subtree — open DM in same panel
+          await this._openFile(vscode.Uri.file(msg.filePath), msg.typePath);
+        }
         break;
       }
 
       case "refresh_types":
-        // Force a full re-scan, bypassing cache
-        this._autoScan(true).catch((e) => BtEditorPanel.outputChannel.appendLine(`[autoScan] unhandled: ${e}`));
+        this._autoScan(true).catch((e) =>
+          BtEditorPanel.outputChannel.appendLine(`[autoScan] unhandled: ${e}`),
+        );
         break;
 
       case "reveal_type": {
-        const cached = this._context.workspaceState.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
-        const filePath = cached?.typeFilePaths?.[msg.typePath];
+        let cached = this._context.workspaceState.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
+        let filePath = cached?.typeFilePaths?.[msg.typePath];
+
+        if (!filePath) {
+          try {
+            const fresh = await scanAll();
+            await this._context.workspaceState.update(BtEditorPanel._CACHE_SCAN, fresh);
+            this._postScanResult(fresh);
+            cached = fresh;
+            filePath = fresh.typeFilePaths?.[msg.typePath];
+          } catch {
+            // ignore scan errors
+          }
+        }
+
         if (!filePath) {
           vscode.window.showWarningMessage(
-            `BT Editor: "${msg.typePath}" not found in scan cache — try Refresh Types.`,
+            `BT Editor: "${msg.typePath}" not found in workspace — is the type defined in a .dm file?`,
           );
           return;
         }
@@ -257,6 +504,8 @@ export class BtEditorPanel {
         break;
     }
   }
+
+  // ── HTML & lifecycle ──────────────────────────────────────────────────────
 
   private _post(msg: ExtMsg) {
     this._panel.webview.postMessage(msg);
@@ -291,13 +540,34 @@ export class BtEditorPanel {
 </html>`;
   }
 
-
   dispose() {
-    BtEditorPanel.currentPanel = undefined;
+    if (this === BtEditorPanel.currentPanel) {
+      BtEditorPanel.currentPanel = undefined;
+    }
     this._panel.dispose();
     while (this._disposables.length) {
       this._disposables.pop()?.dispose();
     }
+  }
+}
+
+export class BtEditorProvider implements vscode.CustomTextEditorProvider {
+  static readonly viewType = "btEditor.visualEditor";
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  async resolveCustomTextEditor(
+    document: vscode.TextDocument,
+    webviewPanel: vscode.WebviewPanel,
+    _token: vscode.CancellationToken,
+  ): Promise<void> {
+    webviewPanel.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+      ],
+    };
+    new BtEditorPanel(webviewPanel, this.context, document.uri);
   }
 }
 

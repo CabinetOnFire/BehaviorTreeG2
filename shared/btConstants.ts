@@ -11,23 +11,23 @@
 // ---------------------------------------------------------------------------
 // BT_PARALLEL — failure policy (first argument)
 // ---------------------------------------------------------------------------
-export const BT_PARALLEL_FAILURE_ONE = "BT_PARALLEL_FAILURE_ONE";
-export const BT_PARALLEL_FAILURE_ALL = "BT_PARALLEL_FAILURE_ALL";
+export const BT_PARALLEL_FAILURE_CHILD_ONE = "BT_PARALLEL_FAILURE_CHILD_ONE";
+export const BT_PARALLEL_FAILURE_ANY = "BT_PARALLEL_FAILURE_ANY";
 
 export const BT_PARALLEL_FAILURE_POLICIES = [
-  BT_PARALLEL_FAILURE_ONE,
-  BT_PARALLEL_FAILURE_ALL,
+  BT_PARALLEL_FAILURE_CHILD_ONE,
+  BT_PARALLEL_FAILURE_ANY,
 ] as const;
 
 // ---------------------------------------------------------------------------
 // BT_PARALLEL — success policy (second argument)
 // ---------------------------------------------------------------------------
+export const BT_PARALLEL_SUCCESS_CHILD_ONE = "BT_PARALLEL_SUCCESS_CHILD_ONE";
 export const BT_PARALLEL_SUCCESS_ALL = "BT_PARALLEL_SUCCESS_ALL";
-export const BT_PARALLEL_SUCCESS_ONE = "BT_PARALLEL_SUCCESS_ONE";
 
 export const BT_PARALLEL_SUCCESS_POLICIES = [
+  BT_PARALLEL_SUCCESS_CHILD_ONE,
   BT_PARALLEL_SUCCESS_ALL,
-  BT_PARALLEL_SUCCESS_ONE,
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -35,26 +35,26 @@ export const BT_PARALLEL_SUCCESS_POLICIES = [
 // ---------------------------------------------------------------------------
 export const BT_ABORT_NONE = "BT_ABORT_NONE";
 export const BT_ABORT_SELF = "BT_ABORT_SELF";
-export const BT_ABORT_LOWER = "BT_ABORT_LOWER";
+export const BT_ABORT_LOWER_PRIORITY = "BT_ABORT_LOWER_PRIORITY";
 export const BT_ABORT_BOTH = "BT_ABORT_BOTH";
 
 export const BT_ABORT_POLICIES = [
   BT_ABORT_NONE,
   BT_ABORT_SELF,
-  BT_ABORT_LOWER,
+  BT_ABORT_LOWER_PRIORITY,
   BT_ABORT_BOTH,
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Human-readable labels — edit these freely, they only affect the UI dropdowns
+// Human-readable labels — because fuck reading defines lol
 // ---------------------------------------------------------------------------
 export const BT_LABELS: Record<string, string> = {
-  [BT_PARALLEL_FAILURE_ONE]: "Fail if at least one child fails",
-  [BT_PARALLEL_FAILURE_ALL]: "Fail if all children fail",
-  [BT_PARALLEL_SUCCESS_ALL]: "Succeed if all children succeed",
-  [BT_PARALLEL_SUCCESS_ONE]: "Succeed if at least one child succeeds",
+  [BT_PARALLEL_FAILURE_CHILD_ONE]: "Fail when child 1 fails",
+  [BT_PARALLEL_FAILURE_ANY]: "Fail when any child fails",
+  [BT_PARALLEL_SUCCESS_CHILD_ONE]: "Succeed when child 1 succeeds",
+  [BT_PARALLEL_SUCCESS_ALL]: "Succeed when all children succeed",
   [BT_ABORT_NONE]: "Do not abort on condition change",
   [BT_ABORT_SELF]: "Abort self on condition change",
-  [BT_ABORT_LOWER]: "Abort lower priority branches on condition change",
+  [BT_ABORT_LOWER_PRIORITY]: "Abort lower priority branches on condition change",
   [BT_ABORT_BOTH]: "Abort both self and lower priority branches on condition change",
 };

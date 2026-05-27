@@ -110,9 +110,9 @@ function SubtreeConfig({
       <input
         value={path}
         onChange={(e) => setPath(e.target.value)}
+        onBlur={() => onUpdate({ ...node, behaviorType: path })}
         style={{ ...textAreaStyle, padding: "4px 6px", height: "auto" }}
       />
-      <SaveBtn onClick={() => onUpdate({ ...node, behaviorType: path })} />
     </div>
   );
 }
@@ -127,13 +127,7 @@ function LeafConfig({
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
 }) {
   const entry = typeVars?.[node.behaviorType] ?? [];
-  const [fieldValues, setFieldValues] = useState<string[]>(
-    () => entry.map((_, i) => node.args[i] ?? ""),
-  );
   const [textValue, setTextValue] = useState(() => node.args.join("\n"));
-
-  const setField = (i: number, v: string) =>
-    setFieldValues((prev) => prev.map((x, j) => (j === i ? v : x)));
 
   if (entry.length > 0) {
     return (
@@ -146,12 +140,15 @@ function LeafConfig({
             <TypedVarInput
               varName={v.name}
               defaultValue={v.defaultValue}
-              value={fieldValues[i] ?? ""}
-              onChange={(val) => setField(i, val)}
+              value={node.args[i] ?? ""}
+              onChange={(val) => {
+                const newArgs = entry.map((_, j) => (j === i ? val : (node.args[j] ?? "")));
+                while (newArgs.length > 0 && newArgs[newArgs.length - 1] === "") newArgs.pop();
+                onUpdate({ ...node, args: newArgs });
+              }}
             />
           </div>
         ))}
-        <SaveBtn onClick={() => onUpdate({ ...node, args: entry.map((_, i) => (fieldValues[i] ?? "").trim()) })} />
       </div>
     );
   }
@@ -168,13 +165,11 @@ function LeafConfig({
       <textarea
         value={textValue}
         onChange={(e) => setTextValue(e.target.value)}
-        rows={5}
-        style={textAreaStyle}
-      />
-      <SaveBtn
-        onClick={() =>
+        onBlur={() =>
           onUpdate({ ...node, args: textValue.split("\n").map((s) => s.trim()).filter(Boolean) })
         }
+        rows={5}
+        style={textAreaStyle}
       />
     </div>
   );
@@ -190,36 +185,33 @@ function DecoratorConfig({
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
 }) {
   const entry = typeVars?.[node.nodeType] ?? [];
-
-  const [configValues, setConfigValues] = useState<Record<string, string>>(() => {
-    const base: Record<string, string> = {};
-    for (const [k, v] of Object.entries(node.config)) {
-      base[k] = Array.isArray(v) ? v.join(", ") : v;
-    }
-    return base;
-  });
   const [textConfig, setTextConfig] = useState(() =>
     Object.entries(node.config)
       .map(([k, v]) => `${k} = ${Array.isArray(v) ? v.join(", ") : v}`)
       .join("\n"),
   );
 
-  const setValue = (k: string, v: string) =>
-    setConfigValues((prev) => ({ ...prev, [k]: v }));
+  const buildConfig = (
+    values: Record<string, string>,
+  ): Record<string, string | string[]> => {
+    const parsed: Record<string, string | string[]> = {};
+    for (const v of entry) {
+      const raw = (values[v.name] ?? "").trim();
+      if (raw) {
+        parsed[v.name] = raw.includes(",")
+          ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+          : raw;
+      }
+    }
+    return parsed;
+  };
 
   if (entry.length > 0) {
-    const handleSave = () => {
-      const parsed: Record<string, string | string[]> = {};
-      for (const v of entry) {
-        const raw = (configValues[v.name] ?? "").trim();
-        if (raw) {
-          parsed[v.name] = raw.includes(",")
-            ? raw.split(",").map((s) => s.trim()).filter(Boolean)
-            : raw;
-        }
-      }
-      onUpdate({ ...node, config: parsed });
-    };
+    const configValues: Record<string, string> = {};
+    for (const [k, v] of Object.entries(node.config)) {
+      configValues[k] = Array.isArray(v) ? v.join(", ") : v;
+    }
+
     return (
       <div>
         <FieldLabel>Decorator Type</FieldLabel>
@@ -231,28 +223,17 @@ function DecoratorConfig({
               varName={v.name}
               defaultValue={v.defaultValue}
               value={configValues[v.name] ?? ""}
-              onChange={(val) => setValue(v.name, val)}
+              onChange={(val) => {
+                onUpdate({ ...node, config: buildConfig({ ...configValues, [v.name]: val }) });
+              }}
             />
           </div>
         ))}
-        <SaveBtn onClick={handleSave} />
       </div>
     );
   }
 
   // Fallback textarea
-  const handleSaveText = () => {
-    const parsed: Record<string, string | string[]> = {};
-    for (const line of textConfig.split("\n")) {
-      const eq = line.indexOf("=");
-      if (eq === -1) continue;
-      const k = line.slice(0, eq).trim();
-      const v = line.slice(eq + 1).trim();
-      parsed[k] = v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : v;
-    }
-    onUpdate({ ...node, config: parsed });
-  };
-
   return (
     <div>
       <FieldLabel>Decorator Type</FieldLabel>
@@ -264,10 +245,20 @@ function DecoratorConfig({
       <textarea
         value={textConfig}
         onChange={(e) => setTextConfig(e.target.value)}
+        onBlur={() => {
+          const parsed: Record<string, string | string[]> = {};
+          for (const line of textConfig.split("\n")) {
+            const eq = line.indexOf("=");
+            if (eq === -1) continue;
+            const k = line.slice(0, eq).trim();
+            const v = line.slice(eq + 1).trim();
+            parsed[k] = v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : v;
+          }
+          onUpdate({ ...node, config: parsed });
+        }}
         rows={6}
         style={textAreaStyle}
       />
-      <SaveBtn onClick={handleSaveText} />
     </div>
   );
 }
@@ -302,6 +293,20 @@ function ParallelConfig({
           <option key={p} value={p}>{BT_LABELS[p] ?? p}</option>
         ))}
       </select>
+
+      <FieldLabel>Repeat Secondary</FieldLabel>
+      <input
+        type="checkbox"
+        checked={node.repeatSecondary}
+        onChange={(e) => onUpdate({ ...node, repeatSecondary: e.target.checked })}
+      />
+
+      <FieldLabel>Finish on Primary</FieldLabel>
+      <input
+        type="checkbox"
+        checked={node.finishOnPrimary}
+        onChange={(e) => onUpdate({ ...node, finishOnPrimary: e.target.checked })}
+      />
     </div>
   );
 }
@@ -360,11 +365,13 @@ function TypedVarInput({
   defaultValue,
   value,
   onChange,
+  onBlur,
 }: {
   varName: string;
   defaultValue: string;
   value: string;
   onChange: (v: string) => void;
+  onBlur?: () => void;
 }) {
   const ft = _inferFieldType(varName, defaultValue);
 
@@ -408,32 +415,13 @@ function TypedVarInput({
       type={ft === "number" ? "number" : "text"}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
       placeholder={placeholder}
       style={{
         ...inputStyle,
         ...(ft === "bbkey" || ft === "typepath" ? { fontFamily: "monospace" } : {}),
       }}
     />
-  );
-}
-
-function SaveBtn({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        marginTop: 8,
-        padding: "4px 12px",
-        background: "var(--vscode-button-background, #0e639c)",
-        color: "var(--vscode-button-foreground, #fff)",
-        border: "none",
-        borderRadius: 3,
-        cursor: "pointer",
-        fontSize: 11,
-      }}
-    >
-      Apply
-    </button>
   );
 }
 

@@ -5,6 +5,8 @@ export type BtNode =
       kind: "parallel";
       failurePolicy: string;
       successPolicy: string;
+      repeatSecondary: boolean;
+      finishOnPrimary: boolean;
       children: BtNode[];
     }
   | { kind: "leaf"; behaviorType: string; args: string[] }
@@ -12,16 +14,16 @@ export type BtNode =
   | {
       kind: "decorator";
       nodeType: string;
-      child: BtNode;
+      child?: BtNode;
       config: Record<string, string | string[]>;
     };
 
 export interface SubtreeDescriptor {
   /** e.g. "/datum/bt_node/subtree/simple_hostile_combat" */
   typePath: string;
-  /** char offset of "behavior_nodes" keyword in the (pre-processed) file text */
-  startOffset: number;
-  /** char offset after the closing ")" of the outermost BT_* macro */
-  endOffset: number;
+  /** Absolute path to the .bt.json source file (new JSON-based system). */
+  jsonPath?: string;
+  /** Absolute path to the .dm file that contains the behavior_tree_json reference (for navigation). */
+  dmPath?: string;
   root: BtNode;
 }

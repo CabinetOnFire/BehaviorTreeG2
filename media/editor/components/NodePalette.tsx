@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from "react";
 import type { WebMsg } from "../../../shared/messaging";
+import { shortTypePath } from "../utils/typeDisplay";
 
 interface NodePaletteProps {
   postMessage: (msg: WebMsg) => void;
   behaviors: string[] | null;
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
-  subtreeRefs: Array<{ typePath: string; filePath: string }> | null;
-  controllerRefs: Array<{ typePath: string; filePath: string }> | null;
-  onOpen: (typePath: string, filePath: string) => void;
+  subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string }> | null;
+  controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string }> | null;
+  onOpen: (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean) => void;
   onRevealType: (typePath: string) => void;
 }
 
@@ -142,7 +143,7 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
                       userSelect: "none",
                     }}
                   >
-                    {b.split("/").pop()}
+                    {shortTypePath(b)}
                   </div>
                 ))}
               </div>
@@ -190,7 +191,7 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
                       userSelect: "none",
                     }}
                   >
-                    {d.split("/").pop()}
+                    {shortTypePath(d)}
                   </div>
                 ))}
                 {filteredDecorators.length === 0 && decoratorFilter && (
@@ -227,7 +228,7 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
                     key={c.typePath}
                     typePath={c.typePath}
                     color="#F06292"
-                    onClick={() => onOpen(c.typePath, c.filePath)}
+                    onClick={() => onOpen(c.typePath, c.filePath, c.jsonPath, true)}
                     onDoubleClick={() => onRevealType(c.typePath)}
                   />
                 ))}
@@ -249,7 +250,7 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
                       e.dataTransfer.setData("application/bt-subtree-path", s.typePath);
                       e.dataTransfer.effectAllowed = "copy";
                     }}
-                    onClick={() => onOpen(s.typePath, s.filePath)}
+                    onClick={() => onOpen(s.typePath, s.filePath, s.jsonPath, true)}
                     onDoubleClick={() => onRevealType(s.typePath)}
                   />
                 ))}
@@ -390,7 +391,7 @@ function BrowserItem({
         userSelect: "none" as const,
       }}
     >
-      {typePath.split("/").pop()}
+      {shortTypePath(typePath)}
     </div>
   );
 }

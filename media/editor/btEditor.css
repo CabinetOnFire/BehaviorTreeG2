@@ -27,3 +27,22 @@
 .react-flow__minimap {
   border-radius: 4px;
 }
+
+/* Make handles larger and easier to click */
+.react-flow__handle {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.react-flow__handle:hover {
+  border-color: white;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.25);
+}
+
+/* Show a visible connection line while dragging */
+.react-flow__connection-path {
+  stroke-width: 2;
+  stroke: #aaa;
+}

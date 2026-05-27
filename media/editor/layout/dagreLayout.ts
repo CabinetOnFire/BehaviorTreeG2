@@ -2,6 +2,10 @@ import dagre from "@dagrejs/dagre";
 import type { Node, Edge } from "@xyflow/react";
 import type { BtNode } from "../../../shared/types";
 
+export const ROOT_NODE_ID = "__root__";
+const ROOT_W = 80;
+const ROOT_H = 30;
+
 interface LayoutResult {
   nodes: Node[];
   edges: Edge[];
@@ -18,17 +22,19 @@ interface LayoutNode {
   btNode: BtNode;
   parentId: string | null;
   isDecoratorChild: boolean; // direct child of a decorator (for tight ranksep)
+  siblingIndex: number | null; // position among siblings in a composite; null for root/decorator children
 }
 
 function collectNodes(
   btNode: BtNode,
   parentId: string | null,
   isDecoratorChild: boolean,
+  siblingIndex: number | null,
   out: LayoutNode[],
   edges: { source: string; target: string; isDecorator: boolean }[],
 ): string {
   const id = nextId();
-  out.push({ id, btNode, parentId, isDecoratorChild });
+  out.push({ id, btNode, parentId, isDecoratorChild, siblingIndex });
 
   if (parentId !== null) {
     edges.push({ source: parentId, target: id, isDecorator: isDecoratorChild });
@@ -37,13 +43,9 @@ function collectNodes(
   switch (btNode.kind) {
     case "selector":
     case "sequence":
-      for (const child of btNode.children) {
-        collectNodes(child, id, false, out, edges);
-      }
-      break;
     case "parallel":
-      for (const child of btNode.children) {
-        collectNodes(child, id, false, out, edges);
+      for (let i = 0; i < btNode.children.length; i++) {
+        collectNodes(btNode.children[i], id, false, i, out, edges);
       }
       break;
     case "leaf":
@@ -51,7 +53,7 @@ function collectNodes(
     case "subtree":
       break;
     case "decorator":
-      collectNodes(btNode.child, id, true, out, edges);
+      if (btNode.child) collectNodes(btNode.child, id, true, null, out, edges);
       break;
   }
 
@@ -59,9 +61,23 @@ function collectNodes(
 }
 
 function nodeSize(btNode: BtNode): { width: number; height: number } {
-  if (btNode.kind === "decorator") return { width: 220, height: 36 };
-  if (btNode.kind === "leaf" || btNode.kind === "subtree") return { width: 220, height: 52 };
-  return { width: 220, height: 48 };
+  const W = 220;
+  switch (btNode.kind) {
+    case "leaf": {
+      const n = btNode.args.length;
+      return { width: W, height: n > 0 ? 34 + n * 18 : 52 };
+    }
+    case "decorator": {
+      const n = Object.keys(btNode.config).length;
+      return { width: W, height: 36 + (n > 0 ? n * 18 + 4 : 0) };
+    }
+    case "parallel":
+      return { width: W, height: 108 };
+    case "subtree":
+      return { width: W, height: 52 };
+    default:
+      return { width: W, height: 48 };
+  }
 }
 
 function nodeType(btNode: BtNode): string {
@@ -81,7 +97,12 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
     case "sequence":
       return {};
     case "parallel":
-      return { failurePolicy: btNode.failurePolicy, successPolicy: btNode.successPolicy };
+      return {
+        failurePolicy: btNode.failurePolicy,
+        successPolicy: btNode.successPolicy,
+        repeatSecondary: btNode.repeatSecondary,
+        finishOnPrimary: btNode.finishOnPrimary,
+      };
     case "leaf":
       return { behaviorType: btNode.behaviorType, args: btNode.args };
     case "subtree":
@@ -91,18 +112,23 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
   }
 }
 
-export function buildLayout(root: BtNode): LayoutResult {
+export function buildLayout(root: BtNode, includeRootStub = false): LayoutResult {
   nodeCounter = 0;
 
   const layoutNodes: LayoutNode[] = [];
   const rawEdges: { source: string; target: string; isDecorator: boolean }[] = [];
 
-  collectNodes(root, null, false, layoutNodes, rawEdges);
+  collectNodes(root, null, false, null, layoutNodes, rawEdges);
 
   // Build dagre graph
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: "TB", ranksep: 50, nodesep: 60 });
+
+  if (includeRootStub) {
+    g.setNode(ROOT_NODE_ID, { width: ROOT_W, height: ROOT_H });
+    g.setEdge(ROOT_NODE_ID, layoutNodes[0].id, { minlen: 2 });
+  }
 
   for (const ln of layoutNodes) {
     const size = nodeSize(ln.btNode);
@@ -117,6 +143,43 @@ export function buildLayout(root: BtNode): LayoutResult {
 
   dagre.layout(g);
 
+  // Enforce left-to-right ordering: child with siblingIndex 0 must be leftmost.
+  // Dagre may assign positions in wrong order; fix by shifting entire subtrees.
+  {
+    function subtreeIds(id: string): string[] {
+      const result: string[] = [id];
+      for (const ln of layoutNodes) {
+        if (ln.parentId === id) result.push(...subtreeIds(ln.id));
+      }
+      return result;
+    }
+
+    for (const ln of layoutNodes) {
+      // Only fix composite nodes whose direct (non-decorator) children have siblingIndex
+      const children = layoutNodes.filter(
+        (c) => c.parentId === ln.id && !c.isDecoratorChild && c.siblingIndex !== null,
+      );
+      if (children.length < 2) continue;
+
+      const byIndex = [...children].sort((a, b) => (a.siblingIndex ?? 0) - (b.siblingIndex ?? 0));
+      const xSlots = byIndex.map((c) => g.node(c.id).x).sort((a, b) => a - b);
+
+      if (byIndex.every((c, i) => Math.abs(g.node(c.id).x - xSlots[i]) < 0.5)) continue;
+
+      const moves = byIndex.map((c, i) => ({
+        ids: subtreeIds(c.id),
+        dx: xSlots[i] - g.node(c.id).x,
+      }));
+      for (const { ids, dx } of moves) {
+        if (Math.abs(dx) < 0.01) continue;
+        for (const id of ids) {
+          const pos = g.node(id);
+          g.setNode(id, { ...pos, x: pos.x + dx });
+        }
+      }
+    }
+  }
+
   const nodes: Node[] = layoutNodes.map((ln) => {
     const pos = g.node(ln.id);
     const size = nodeSize(ln.btNode);
@@ -124,7 +187,7 @@ export function buildLayout(root: BtNode): LayoutResult {
       id: ln.id,
       type: nodeType(ln.btNode),
       position: { x: pos.x - size.width / 2, y: pos.y - size.height / 2 },
-      data: { ...nodeData(ln.btNode), _btNode: ln.btNode },
+      data: { ...nodeData(ln.btNode), _btNode: ln.btNode, childIndex: ln.siblingIndex },
       style: { width: size.width },
     };
   });
@@ -139,6 +202,30 @@ export function buildLayout(root: BtNode): LayoutResult {
       : { stroke: "#555", strokeWidth: 1.5 },
     markerEnd: e.isDecorator ? undefined : { type: "arrowclosed" as const },
   }));
+
+  if (includeRootStub) {
+    const pos = g.node(ROOT_NODE_ID);
+    nodes.unshift({
+      id: ROOT_NODE_ID,
+      type: "rootNode",
+      position: { x: pos.x - ROOT_W / 2, y: pos.y - ROOT_H / 2 },
+      data: {},
+      deletable: false,
+      draggable: false,
+      selectable: false,
+      style: { width: ROOT_W },
+    });
+    edges.unshift({
+      id: "e__root__",
+      source: ROOT_NODE_ID,
+      target: layoutNodes[0].id,
+      type: "smoothstep",
+      style: { stroke: "#555", strokeWidth: 1.5, strokeDasharray: "4 3" },
+      markerEnd: { type: "arrowclosed" as const },
+      deletable: false,
+      reconnectable: false,
+    } as Edge);
+  }
 
   return { nodes, edges };
 }
