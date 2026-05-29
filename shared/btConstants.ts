@@ -31,6 +31,28 @@ export const BT_PARALLEL_SUCCESS_POLICIES = [
 ] as const;
 
 // ---------------------------------------------------------------------------
+// BT_SUBPLAN — success policy
+// ---------------------------------------------------------------------------
+export const BT_SUBPLAN_SUCCEED_ON_SUCCESS = "BT_SUBPLAN_SUCCEED_ON_SUCCESS";
+export const BT_SUBPLAN_LOOP_ON_SUCCESS = "BT_SUBPLAN_LOOP_ON_SUCCESS";
+
+export const BT_SUBPLAN_SUCCESS_POLICIES = [
+  BT_SUBPLAN_SUCCEED_ON_SUCCESS,
+  BT_SUBPLAN_LOOP_ON_SUCCESS,
+] as const;
+
+// ---------------------------------------------------------------------------
+// BT_SUBPLAN — failure policy
+// ---------------------------------------------------------------------------
+export const BT_SUBPLAN_FAIL_ON_FAILURE = "BT_SUBPLAN_FAIL_ON_FAILURE";
+export const BT_SUBPLAN_LOOP_ON_FAILURE = "BT_SUBPLAN_LOOP_ON_FAILURE";
+
+export const BT_SUBPLAN_FAILURE_POLICIES = [
+  BT_SUBPLAN_FAIL_ON_FAILURE,
+  BT_SUBPLAN_LOOP_ON_FAILURE,
+] as const;
+
+// ---------------------------------------------------------------------------
 // BT_DECORATOR / observer_abort — abort policy values
 // ---------------------------------------------------------------------------
 export const BT_ABORT_NONE = "BT_ABORT_NONE";
@@ -53,6 +75,10 @@ export const BT_LABELS: Record<string, string> = {
   [BT_PARALLEL_FAILURE_ANY]: "Fail when any child fails",
   [BT_PARALLEL_SUCCESS_CHILD_ONE]: "Succeed when child 1 succeeds",
   [BT_PARALLEL_SUCCESS_ALL]: "Succeed when all children succeed",
+  [BT_SUBPLAN_SUCCEED_ON_SUCCESS]: "Succeed on success",
+  [BT_SUBPLAN_LOOP_ON_SUCCESS]: "Loop on success",
+  [BT_SUBPLAN_FAIL_ON_FAILURE]: "Fail on failure",
+  [BT_SUBPLAN_LOOP_ON_FAILURE]: "Loop on failure (retry)",
   [BT_ABORT_NONE]: "Do not abort on condition change",
   [BT_ABORT_SELF]: "Abort self on condition change",
   [BT_ABORT_LOWER_PRIORITY]: "Abort lower priority branches on condition change",

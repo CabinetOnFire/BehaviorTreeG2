@@ -38,7 +38,20 @@ function serializeNode(node: BtNode): JsonNode {
         failure_policy: node.failurePolicy,
         success_policy: node.successPolicy,
         repeat_secondary: node.repeatSecondary,
+        ...(node.repeatSecondaryDelay !== undefined && {
+          repeat_secondary_delay: stringToJsonScalar(node.repeatSecondaryDelay),
+        }),
         finish_on_primary: node.finishOnPrimary,
+        ...(node.tickRate !== undefined && { tick_rate: stringToJsonScalar(node.tickRate) }),
+        children: node.children.map(serializeNode),
+      };
+
+    case "subplan":
+      return {
+        type: "subplan",
+        success_policy: node.successPolicy,
+        failure_policy: node.failurePolicy,
+        ...(node.tickRate !== undefined && { tick_rate: stringToJsonScalar(node.tickRate) }),
         children: node.children.map(serializeNode),
       };
 

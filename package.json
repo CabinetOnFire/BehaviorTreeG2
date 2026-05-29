@@ -1,7 +1,7 @@
 {
-  "name": "tgstation-bt-editor",
-  "displayName": "tgstation BT Editor",
-  "description": "Visual behavior tree editor for tgstation DM files",
+  "name": "behaviortreeg",
+  "displayName": "BehaviorTreeG",
+  "description": "Visual behavior tree editor for tgstation's implementation of behavior trees",
   "version": "0.1.0",
   "license": "GPL-3.0",
   "repository": {

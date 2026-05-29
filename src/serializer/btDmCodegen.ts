@@ -80,13 +80,18 @@ function codegenNode(node: BtNode, depth: number): string {
       const fp = node.failurePolicy;
       const sp = node.successPolicy;
       const rs = node.repeatSecondary ? "TRUE" : "FALSE";
+      const rsd = node.repeatSecondaryDelay;
       const fop = node.finishOnPrimary ? "TRUE" : "FALSE";
+      const tr = node.tickRate;
 
       if (node.children.length === 0) {
         return (
           `list("__t" = /datum/bt_node/composite/parallel, ` +
           `"failure_policy" = ${fp}, "success_policy" = ${sp}, ` +
-          `"repeat_secondary" = ${rs}, "finish_on_primary" = ${fop}, "__c" = list())`
+          `"repeat_secondary" = ${rs}` +
+          `${rsd !== undefined ? `, "repeat_secondary_delay" = ${emitValue(rsd)}` : ""}` +
+          `, "finish_on_primary" = ${fop}` +
+          `${tr !== undefined ? `, "tick_rate" = ${emitValue(tr)}` : ""}, "__c" = list())`
         );
       }
 
@@ -100,7 +105,39 @@ function codegenNode(node: BtNode, depth: number): string {
         `${innerIndent}"failure_policy" = ${fp},\n` +
         `${innerIndent}"success_policy" = ${sp},\n` +
         `${innerIndent}"repeat_secondary" = ${rs},\n` +
+        (rsd !== undefined ? `${innerIndent}"repeat_secondary_delay" = ${emitValue(rsd)},\n` : "") +
         `${innerIndent}"finish_on_primary" = ${fop},\n` +
+        (tr !== undefined ? `${innerIndent}"tick_rate" = ${emitValue(tr)},\n` : "") +
+        `${innerIndent}"__c" = list(\n` +
+        `${childLines}\n` +
+        `${innerIndent})\n` +
+        `${outerIndent})`
+      );
+    }
+
+    case "subplan": {
+      const sp = node.successPolicy;
+      const fp = node.failurePolicy;
+      const tr = node.tickRate;
+
+      if (node.children.length === 0) {
+        return (
+          `list("__t" = /datum/bt_node/composite/subplan, ` +
+          `"success_policy" = ${sp}, "failure_policy" = ${fp}` +
+          `${tr !== undefined ? `, "tick_rate" = ${emitValue(tr)}` : ""}, "__c" = list())`
+        );
+      }
+
+      const childLines = node.children
+        .map((c) => `${childrenIndent}${codegenNode(c, depth + 2)}`)
+        .join(",\n");
+
+      return (
+        `list(\n` +
+        `${innerIndent}"__t" = /datum/bt_node/composite/subplan,\n` +
+        `${innerIndent}"success_policy" = ${sp},\n` +
+        `${innerIndent}"failure_policy" = ${fp},\n` +
+        (tr !== undefined ? `${innerIndent}"tick_rate" = ${emitValue(tr)},\n` : "") +
         `${innerIndent}"__c" = list(\n` +
         `${childLines}\n` +
         `${innerIndent})\n` +
@@ -110,14 +147,10 @@ function codegenNode(node: BtNode, depth: number): string {
 
     case "decorator": {
       const configEntries = Object.entries(node.config);
-      const childStr = node.child
-        ? `${childrenIndent}${codegenNode(node.child, depth + 2)}`
-        : "";
+      const childStr = node.child ? `${childrenIndent}${codegenNode(node.child, depth + 2)}` : "";
 
       let result =
-        `list(\n` +
-        `${innerIndent}"__t" = ${node.nodeType},\n` +
-        `${innerIndent}"__c" = list(\n`;
+        `list(\n` + `${innerIndent}"__t" = ${node.nodeType},\n` + `${innerIndent}"__c" = list(\n`;
 
       if (node.child) result += `${childStr}\n`;
       result += `${innerIndent})`;
@@ -154,8 +187,13 @@ function codegenNode(node: BtNode, depth: number): string {
  * Uses depth=1 so the list's content is indented at two tabs relative to the
  * file's left margin — correct for a var override inside a /datum/ type body.
  */
+function addLineContinuations(s: string): string {
+  const lines = s.split("\n");
+  return lines.map((line, i) => (i < lines.length - 1 ? line + "\\" : line)).join("\n");
+}
+
 export function generateDmListForm(node: BtNode): string {
-  return `behavior_nodes = ${codegenNode(node, 1)}`;
+  return addLineContinuations(`behavior_nodes = ${codegenNode(node, 1)}`);
 }
 
 /**

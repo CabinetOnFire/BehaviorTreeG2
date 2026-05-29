@@ -6,7 +6,16 @@ export type BtNode =
       failurePolicy: string;
       successPolicy: string;
       repeatSecondary: boolean;
+      repeatSecondaryDelay?: string;
       finishOnPrimary: boolean;
+      tickRate?: string;
+      children: BtNode[];
+    }
+  | {
+      kind: "subplan";
+      successPolicy: string;
+      failurePolicy: string;
+      tickRate?: string;
       children: BtNode[];
     }
   | { kind: "leaf"; behaviorType: string; args: string[] }

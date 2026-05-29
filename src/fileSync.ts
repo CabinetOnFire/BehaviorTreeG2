@@ -143,10 +143,7 @@ export async function deployJsonToDm(
 export async function deployAllJsonToDm(
   log?: vscode.OutputChannel,
 ): Promise<{ success: boolean; message: string }> {
-  const jsonFiles = await vscode.workspace.findFiles(
-    "**/*.bt.json",
-    "**/node_modules/**",
-  );
+  const jsonFiles = await vscode.workspace.findFiles("**/*.bt.json", "**/node_modules/**");
 
   if (jsonFiles.length === 0) {
     return { success: false, message: "No .bt.json files found in workspace." };
@@ -229,6 +226,10 @@ const STRUCTURAL_VARS = new Set([
   "parent_type",
   "child_typepath",
   "behavior_tree_json",
+  "child_active",
+  "owning_controller",
+  "has_observer_signals",
+  "observers_registered",
 ]);
 
 interface _RawTypeInfo {
@@ -332,11 +333,7 @@ export async function scanAll(): Promise<ScanResult> {
 // behavior_tree_json reference scanner
 // ──────────────────────────────────────────────────────────────────────────────
 
-function _parseBtJsonRefs(
-  text: string,
-  dmDir: string,
-  btJsonRefs: Map<string, string>,
-): void {
+function _parseBtJsonRefs(text: string, dmDir: string, btJsonRefs: Map<string, string>): void {
   let currentType: string | null = null;
 
   for (const rawLine of text.split(/\r?\n/)) {
@@ -348,7 +345,12 @@ function _parseBtJsonRefs(
     }
 
     // Reset context on non-indented non-empty lines
-    if (rawLine.trim() && !rawLine.startsWith("\t") && !rawLine.startsWith("//") && !rawLine.startsWith("#")) {
+    if (
+      rawLine.trim() &&
+      !rawLine.startsWith("\t") &&
+      !rawLine.startsWith("//") &&
+      !rawLine.startsWith("#")
+    ) {
       currentType = null;
       continue;
     }
