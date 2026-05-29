@@ -19,6 +19,7 @@ import { SequenceNode } from "./components/nodes/SequenceNode";
 import { ParallelNode } from "./components/nodes/ParallelNode";
 import { LeafNode } from "./components/nodes/LeafNode";
 import { DecoratorNode } from "./components/nodes/DecoratorNode";
+import { SubplanNode } from "./components/nodes/SubplanNode";
 import { SubtreeNode } from "./components/nodes/SubtreeNode";
 import { RootNode } from "./components/nodes/RootNode";
 import { ROOT_NODE_ID } from "./layout/dagreLayout";
@@ -29,6 +30,8 @@ import type { BtNode } from "../../shared/types";
 import {
   BT_PARALLEL_FAILURE_CHILD_ONE,
   BT_PARALLEL_SUCCESS_CHILD_ONE,
+  BT_SUBPLAN_SUCCEED_ON_SUCCESS,
+  BT_SUBPLAN_FAIL_ON_FAILURE,
 } from "../../shared/btConstants";
 import { TypeVarsContext } from "./contexts/TypeVarsContext";
 
@@ -36,6 +39,7 @@ const nodeTypes = {
   selectorNode: SelectorNode,
   sequenceNode: SequenceNode,
   parallelNode: ParallelNode,
+  subplanNode: SubplanNode,
   leafNode: LeafNode,
   decoratorNode: DecoratorNode,
   subtreeNode: SubtreeNode,
@@ -215,6 +219,14 @@ function BtEditorInner() {
             kind: "decorator",
             nodeType: decoratorType || "/datum/bt_node/decorator/todo",
             config: {},
+          };
+          break;
+        case "subplan":
+          newNode = {
+            kind: "subplan",
+            successPolicy: BT_SUBPLAN_SUCCEED_ON_SUCCESS,
+            failurePolicy: BT_SUBPLAN_FAIL_ON_FAILURE,
+            children: [],
           };
           break;
         case "subtree":
@@ -477,6 +489,7 @@ function BtEditorInner() {
                       if (type.includes("selector")) return "#4CAF50";
                       if (type.includes("sequence")) return "#2196F3";
                       if (type.includes("parallel")) return "#9C27B0";
+                      if (type.includes("subplan")) return "#FFB300";
                       if (type.includes("leaf")) return "#FF9800";
                       if (type.includes("subtree")) return "#26C6DA";
                       return "#607D8B";

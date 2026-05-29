@@ -3,6 +3,8 @@ import type { BtNode } from "../../../shared/types";
 import {
   BT_PARALLEL_FAILURE_POLICIES,
   BT_PARALLEL_SUCCESS_POLICIES,
+  BT_SUBPLAN_SUCCESS_POLICIES,
+  BT_SUBPLAN_FAILURE_POLICIES,
   BT_ABORT_POLICIES,
   BT_LABELS,
 } from "../../../shared/btConstants";
@@ -86,6 +88,8 @@ function NodeConfigBody({
       return <DecoratorConfig node={node} onUpdate={onUpdate} typeVars={typeVars} />;
     case "parallel":
       return <ParallelConfig node={node} onUpdate={onUpdate} />;
+    case "subplan":
+      return <SubplanConfig node={node} onUpdate={onUpdate} />;
     case "selector":
     case "sequence":
       return (
@@ -160,13 +164,25 @@ function LeafConfig({
       <TypePathLabel>{node.behaviorType}</TypePathLabel>
       <FieldLabel>
         Args (one per line)
-        <HintText>{typeVars === null ? "— scanning…" : node.behaviorType in typeVars ? "— no configurable variables" : "— type not found in workspace"}</HintText>
+        <HintText>
+          {typeVars === null
+            ? "— scanning…"
+            : node.behaviorType in typeVars
+              ? "— no configurable variables"
+              : "— type not found in workspace"}
+        </HintText>
       </FieldLabel>
       <textarea
         value={textValue}
         onChange={(e) => setTextValue(e.target.value)}
         onBlur={() =>
-          onUpdate({ ...node, args: textValue.split("\n").map((s) => s.trim()).filter(Boolean) })
+          onUpdate({
+            ...node,
+            args: textValue
+              .split("\n")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          })
         }
         rows={5}
         style={textAreaStyle}
@@ -191,15 +207,16 @@ function DecoratorConfig({
       .join("\n"),
   );
 
-  const buildConfig = (
-    values: Record<string, string>,
-  ): Record<string, string | string[]> => {
+  const buildConfig = (values: Record<string, string>): Record<string, string | string[]> => {
     const parsed: Record<string, string | string[]> = {};
     for (const v of entry) {
       const raw = (values[v.name] ?? "").trim();
       if (raw) {
         parsed[v.name] = raw.includes(",")
-          ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+          ? raw
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
           : raw;
       }
     }
@@ -240,7 +257,13 @@ function DecoratorConfig({
       <TypePathLabel>{node.nodeType}</TypePathLabel>
       <FieldLabel>
         Config (key = value, one per line)
-        <HintText>{typeVars === null ? "— scanning…" : node.nodeType in typeVars ? "— no configurable variables" : "— type not found in workspace"}</HintText>
+        <HintText>
+          {typeVars === null
+            ? "— scanning…"
+            : node.nodeType in typeVars
+              ? "— no configurable variables"
+              : "— type not found in workspace"}
+        </HintText>
       </FieldLabel>
       <textarea
         value={textConfig}
@@ -252,7 +275,12 @@ function DecoratorConfig({
             if (eq === -1) continue;
             const k = line.slice(0, eq).trim();
             const v = line.slice(eq + 1).trim();
-            parsed[k] = v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : v;
+            parsed[k] = v.includes(",")
+              ? v
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+              : v;
           }
           onUpdate({ ...node, config: parsed });
         }}
@@ -270,6 +298,35 @@ function ParallelConfig({
   node: Extract<BtNode, { kind: "parallel" }>;
   onUpdate: (n: BtNode) => void;
 }) {
+  const [tickRateText, setTickRateText] = useState(() =>
+    node.tickRate !== undefined ? String(node.tickRate) : "",
+  );
+  const [rsdText, setRsdText] = useState(() =>
+    node.repeatSecondaryDelay !== undefined ? String(node.repeatSecondaryDelay) : "",
+  );
+
+  function commitTickRate(raw: string) {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      const { tickRate: _removed, ...rest } = node as typeof node & { tickRate?: string };
+      onUpdate(rest as typeof node);
+    } else {
+      onUpdate({ ...node, tickRate: trimmed });
+    }
+  }
+
+  function commitRsd(raw: string) {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      const { repeatSecondaryDelay: _removed, ...rest } = node as typeof node & {
+        repeatSecondaryDelay?: string;
+      };
+      onUpdate(rest as typeof node);
+    } else {
+      onUpdate({ ...node, repeatSecondaryDelay: trimmed });
+    }
+  }
+
   return (
     <div>
       <FieldLabel>Failure Policy</FieldLabel>
@@ -279,7 +336,9 @@ function ParallelConfig({
         style={selectStyle}
       >
         {BT_PARALLEL_FAILURE_POLICIES.map((p) => (
-          <option key={p} value={p}>{BT_LABELS[p] ?? p}</option>
+          <option key={p} value={p}>
+            {BT_LABELS[p] ?? p}
+          </option>
         ))}
       </select>
 
@@ -290,7 +349,9 @@ function ParallelConfig({
         style={selectStyle}
       >
         {BT_PARALLEL_SUCCESS_POLICIES.map((p) => (
-          <option key={p} value={p}>{BT_LABELS[p] ?? p}</option>
+          <option key={p} value={p}>
+            {BT_LABELS[p] ?? p}
+          </option>
         ))}
       </select>
 
@@ -301,19 +362,122 @@ function ParallelConfig({
         onChange={(e) => onUpdate({ ...node, repeatSecondary: e.target.checked })}
       />
 
+      <FieldLabel>
+        Repeat Secondary Delay <HintText>— leave blank for default</HintText>
+      </FieldLabel>
+      <input
+        type="text"
+        value={rsdText}
+        onChange={(e) => setRsdText(e.target.value)}
+        onBlur={() => commitRsd(rsdText)}
+        placeholder="default"
+        style={inputStyle}
+      />
+
       <FieldLabel>Finish on Primary</FieldLabel>
       <input
         type="checkbox"
         checked={node.finishOnPrimary}
         onChange={(e) => onUpdate({ ...node, finishOnPrimary: e.target.checked })}
       />
+
+      <FieldLabel>
+        Tick Rate <HintText>— leave blank for default</HintText>
+      </FieldLabel>
+      <input
+        type="text"
+        value={tickRateText}
+        onChange={(e) => setTickRateText(e.target.value)}
+        onBlur={() => commitTickRate(tickRateText)}
+        placeholder="default"
+        style={inputStyle}
+      />
+    </div>
+  );
+}
+
+function SubplanConfig({
+  node,
+  onUpdate,
+}: {
+  node: Extract<BtNode, { kind: "subplan" }>;
+  onUpdate: (n: BtNode) => void;
+}) {
+  const [tickRateText, setTickRateText] = useState(() =>
+    node.tickRate !== undefined ? String(node.tickRate) : "",
+  );
+
+  function commitTickRate(raw: string) {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      const { tickRate: _removed, ...rest } = node as typeof node & { tickRate?: string };
+      onUpdate(rest as typeof node);
+    } else {
+      onUpdate({ ...node, tickRate: trimmed });
+    }
+  }
+
+  return (
+    <div>
+      <FieldLabel>Success Policy</FieldLabel>
+      <select
+        value={node.successPolicy}
+        onChange={(e) => onUpdate({ ...node, successPolicy: e.target.value })}
+        style={selectStyle}
+      >
+        {BT_SUBPLAN_SUCCESS_POLICIES.map((p) => (
+          <option key={p} value={p}>
+            {BT_LABELS[p] ?? p}
+          </option>
+        ))}
+      </select>
+
+      <FieldLabel>Failure Policy</FieldLabel>
+      <select
+        value={node.failurePolicy}
+        onChange={(e) => onUpdate({ ...node, failurePolicy: e.target.value })}
+        style={selectStyle}
+      >
+        {BT_SUBPLAN_FAILURE_POLICIES.map((p) => (
+          <option key={p} value={p}>
+            {BT_LABELS[p] ?? p}
+          </option>
+        ))}
+      </select>
+
+      <FieldLabel>
+        Tick Rate <HintText>— leave blank for default</HintText>
+      </FieldLabel>
+      <input
+        type="text"
+        value={tickRateText}
+        onChange={(e) => setTickRateText(e.target.value)}
+        onBlur={() => commitTickRate(tickRateText)}
+        placeholder="default"
+        style={inputStyle}
+      />
+
+      <div style={{ marginTop: 10, fontSize: 10, opacity: 0.5, lineHeight: "16px" }}>
+        <div>Succeed/Fail → identical to sequence</div>
+        <div>Loop/Fail → repeat while succeeding</div>
+        <div>Succeed/Loop → retry until success</div>
+        <div>Loop/Loop → infinite loop</div>
+      </div>
     </div>
   );
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontSize: 10, textTransform: "uppercase", opacity: 0.6, marginBottom: 3, marginTop: 8 }}>
+    <div
+      style={{
+        fontSize: 10,
+        textTransform: "uppercase",
+        opacity: 0.6,
+        marginBottom: 3,
+        marginTop: 8,
+      }}
+    >
       {children}
     </div>
   );
@@ -321,7 +485,15 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 function TypePathLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontFamily: "monospace", fontSize: 11, wordBreak: "break-all", marginBottom: 8, opacity: 0.8 }}>
+    <div
+      style={{
+        fontFamily: "monospace",
+        fontSize: 11,
+        wordBreak: "break-all",
+        marginBottom: 8,
+        opacity: 0.8,
+      }}
+    >
       {children}
     </div>
   );
@@ -397,18 +569,24 @@ function TypedVarInput({
         style={selectStyle}
       >
         {BT_ABORT_POLICIES.map((p) => (
-          <option key={p} value={p}>{BT_LABELS[p] ?? p}</option>
+          <option key={p} value={p}>
+            {BT_LABELS[p] ?? p}
+          </option>
         ))}
       </select>
     );
   }
 
   const placeholder =
-    ft === "bbkey" ? "BB_KEY_NAME"
-    : ft === "typepath" ? "/datum/type/path"
-    : ft === "number" ? "0"
-    : defaultValue !== "null" ? defaultValue
-    : "";
+    ft === "bbkey"
+      ? "BB_KEY_NAME"
+      : ft === "typepath"
+        ? "/datum/type/path"
+        : ft === "number"
+          ? "0"
+          : defaultValue !== "null"
+            ? defaultValue
+            : "";
 
   return (
     <input

@@ -818,6 +818,7 @@ function _countBtNodes(node: BtNode): number {
     case "selector":
     case "sequence":
     case "parallel":
+    case "subplan":
       for (const c of node.children) n += _countBtNodes(c);
       break;
     case "decorator":
@@ -848,7 +849,8 @@ function extractNodeFromTree(
     switch (node.kind) {
       case "selector":
       case "sequence":
-      case "parallel": {
+      case "parallel":
+      case "subplan": {
         const kids: BtNode[] = [];
         for (const c of node.children) {
           const r = walk(c);
@@ -880,6 +882,7 @@ function addChildToCompositeByIndex(root: BtNode, compositeIdx: number, child: B
       case "selector":
       case "sequence":
       case "parallel":
+      case "subplan":
         for (const c of node.children) { counter++; skipDesc(c); }
         break;
       case "decorator":
@@ -898,6 +901,7 @@ function addChildToCompositeByIndex(root: BtNode, compositeIdx: number, child: B
       case "selector":
       case "sequence":
       case "parallel":
+      case "subplan":
         return { ...node, children: node.children.map(walk) };
       case "decorator":
         return { ...node, child: node.child ? walk(node.child) : undefined };
@@ -918,6 +922,7 @@ function setDecoratorChildByIndex(root: BtNode, decoratorIdx: number, newChild: 
       case "selector":
       case "sequence":
       case "parallel":
+      case "subplan":
         for (const c of node.children) { counter++; skipDesc(c); }
         break;
       case "decorator":
@@ -936,6 +941,7 @@ function setDecoratorChildByIndex(root: BtNode, decoratorIdx: number, newChild: 
       case "selector":
       case "sequence":
       case "parallel":
+      case "subplan":
         return { ...node, children: node.children.map(walk) };
       case "decorator":
         return { ...node, child: node.child ? walk(node.child) : undefined };
@@ -962,6 +968,7 @@ function _replaceNodeInTree(
       case "selector":
       case "sequence":
       case "parallel":
+      case "subplan":
         for (const c of node.children) { counter++; skipDesc(c); }
         break;
       case "decorator":
@@ -977,6 +984,7 @@ function _replaceNodeInTree(
       case "selector":
       case "sequence":
       case "parallel":
+      case "subplan":
         return { ...node, children: node.children.map(walk) };
       case "decorator":
         return { ...node, child: node.child ? walk(node.child) : undefined };
@@ -990,5 +998,5 @@ function _replaceNodeInTree(
 }
 
 function isComposite(node: BtNode): node is Extract<BtNode, { children: BtNode[] }> {
-  return node.kind === "selector" || node.kind === "sequence" || node.kind === "parallel";
+  return node.kind === "selector" || node.kind === "sequence" || node.kind === "parallel" || node.kind === "subplan";
 }

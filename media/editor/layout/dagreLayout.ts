@@ -44,6 +44,7 @@ function collectNodes(
     case "selector":
     case "sequence":
     case "parallel":
+    case "subplan":
       for (let i = 0; i < btNode.children.length; i++) {
         collectNodes(btNode.children[i], id, false, i, out, edges);
       }
@@ -73,6 +74,8 @@ function nodeSize(btNode: BtNode): { width: number; height: number } {
     }
     case "parallel":
       return { width: W, height: 108 };
+    case "subplan":
+      return { width: W, height: 88 };
     case "subtree":
       return { width: W, height: 52 };
     default:
@@ -85,6 +88,7 @@ function nodeType(btNode: BtNode): string {
     case "selector": return "selectorNode";
     case "sequence": return "sequenceNode";
     case "parallel": return "parallelNode";
+    case "subplan": return "subplanNode";
     case "leaf": return "leafNode";
     case "subtree": return "subtreeNode";
     case "decorator": return "decoratorNode";
@@ -102,6 +106,11 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
         successPolicy: btNode.successPolicy,
         repeatSecondary: btNode.repeatSecondary,
         finishOnPrimary: btNode.finishOnPrimary,
+      };
+    case "subplan":
+      return {
+        successPolicy: btNode.successPolicy,
+        failurePolicy: btNode.failurePolicy,
       };
     case "leaf":
       return { behaviorType: btNode.behaviorType, args: btNode.args };
