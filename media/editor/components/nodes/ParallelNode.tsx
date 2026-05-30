@@ -1,26 +1,16 @@
 import React from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ChildOrderBadge } from "./ChildOrderBadge";
+import { BT_LABELS } from "../../../../shared/btConstants";
+import { COMPOSITE_SCHEMAS } from "../../../../shared/compositeSchema";
 
-interface ParallelNodeData {
-  failurePolicy?: string;
-  successPolicy?: string;
-  repeatSecondary?: boolean;
-  finishOnPrimary?: boolean;
+const SCHEMA = COMPOSITE_SCHEMAS["parallel"]!;
+
+interface ParallelNodeData extends Record<string, unknown> {
   childIndex?: number | null;
 }
 
-const POLICY_LABELS: Record<string, string> = {
-  BT_PARALLEL_FAILURE_CHILD_ONE: "Child 1 fails",
-  BT_PARALLEL_FAILURE_ANY: "Any child fails",
-  BT_PARALLEL_SUCCESS_CHILD_ONE: "Child 1 succeeds",
-  BT_PARALLEL_SUCCESS_ALL: "All children succeed",
-};
-
 export function ParallelNode({ data }: { data: ParallelNodeData }) {
-  const failLabel = data.failurePolicy ? (POLICY_LABELS[data.failurePolicy] ?? data.failurePolicy) : "—";
-  const okLabel = data.successPolicy ? (POLICY_LABELS[data.successPolicy] ?? data.successPolicy) : "—";
-
   return (
     <div
       style={{
@@ -44,10 +34,20 @@ export function ParallelNode({ data }: { data: ParallelNodeData }) {
           <span style={{ fontSize: 16, color: "#9C27B0", fontWeight: "bold", lineHeight: 1 }}>⇉</span>
           <span style={{ fontWeight: 700, fontSize: 12 }}>Parallel</span>
         </div>
-        <Row label="fail" value={failLabel} />
-        <Row label="ok" value={okLabel} />
-        <Row label="repeat 2nd" value={data.repeatSecondary ? "yes" : "no"} />
-        <Row label="finish 1st" value={data.finishOnPrimary ? "yes" : "no"} />
+        {SCHEMA.map((prop) => {
+          const raw = data[prop.key];
+          // Optional text fields: skip if not set
+          if (prop.type === "text" && (raw == null || raw === "")) return null;
+          let display: string;
+          if (prop.type === "enum") {
+            display = raw != null ? (BT_LABELS[raw as string] ?? String(raw)) : "—";
+          } else if (prop.type === "boolean") {
+            display = raw != null ? (raw ? "yes" : "no") : "—";
+          } else {
+            display = String(raw);
+          }
+          return <Row key={prop.key} label={prop.label} value={display} />;
+        })}
       </div>
       <Handle type="source" position={Position.Bottom} style={{ background: "#9C27B0" }} />
     </div>

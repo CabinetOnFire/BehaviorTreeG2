@@ -2,7 +2,7 @@
   "name": "behaviortreeg",
   "displayName": "BehaviorTreeG",
   "description": "Visual behavior tree editor for tgstation's implementation of behavior trees",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icon": "media/bt-editor-logo.png",
   "license": "GPL-3.0",
   "publisher": "behaviortreeg",
@@ -41,6 +41,16 @@
         "icon": "$(symbol-event)"
       },
       {
+        "command": "bt-editor.open-json",
+        "title": "Open in BT Editor",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "bt-editor.refresh-browser",
+        "title": "Refresh Behavior Tree Browser",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "bt-editor.deploy-all",
         "title": "Deploy all BT JSONs to DM",
         "icon": "$(cloud-upload)"
@@ -59,7 +69,12 @@
       "bt-editor-activitybar": [
         {
           "id": "bt-editor.treeView",
-          "name": "Behavior Trees",
+          "name": "Open BT Editor",
+          "type": "tree"
+        },
+        {
+          "id": "bt-editor.browserView",
+          "name": "Subtrees & Controllers",
           "type": "tree"
         }
       ]
@@ -68,6 +83,10 @@
       {
         "view": "bt-editor.treeView",
         "contents": "Open a .bt.json or .dm file to get started.\n[Open BT Editor](command:bt-editor.open)"
+      },
+      {
+        "view": "bt-editor.browserView",
+        "contents": "No behavior trees found in workspace.\n[Scan Workspace](command:bt-editor.refresh-browser)"
       }
     ],
     "configuration": {
@@ -98,6 +117,18 @@
           "command": "bt-editor.open",
           "when": "view == bt-editor.treeView && (resourceLangId == dm || resourceExtname == .bt.json)",
           "group": "navigation"
+        },
+        {
+          "command": "bt-editor.refresh-browser",
+          "when": "view == bt-editor.browserView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "bt-editor.open-json",
+          "when": "viewItem == btEntry",
+          "group": "inline"
         }
       ]
     }

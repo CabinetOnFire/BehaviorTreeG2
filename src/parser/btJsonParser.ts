@@ -1,4 +1,5 @@
 import type { BtNode } from "../../shared/types";
+import { COMPOSITE_SCHEMAS } from "../../shared/compositeSchema";
 
 // ---------------------------------------------------------------------------
 // JSON node shapes (as written in .bt.json files)
@@ -40,37 +41,22 @@ function parseNode(obj: JsonObj): BtNode {
       return { kind: type as "selector" | "sequence", children };
     }
 
-    case "parallel": {
-      const children = ((obj["children"] as JsonVal[]) ?? []).map((c) => parseNode(c as JsonObj));
-      const parallelTickRate =
-        obj["tick_rate"] != null ? scalarToString(obj["tick_rate"]) : undefined;
-      const repeatSecondaryDelay =
-        obj["repeat_secondary_delay"] != null
-          ? scalarToString(obj["repeat_secondary_delay"])
-          : undefined;
-      return {
-        kind: "parallel",
-        failurePolicy: String(obj["failure_policy"] ?? "BT_PARALLEL_FAILURE_CHILD_ONE"),
-        successPolicy: String(obj["success_policy"] ?? "BT_PARALLEL_SUCCESS_CHILD_ONE"),
-        repeatSecondary: Boolean(obj["repeat_secondary"] ?? false),
-        ...(repeatSecondaryDelay !== undefined && { repeatSecondaryDelay }),
-        finishOnPrimary: Boolean(obj["finish_on_primary"] ?? false),
-        ...(parallelTickRate !== undefined && { tickRate: parallelTickRate }),
-        children,
-      };
-    }
-
+    case "parallel":
     case "subplan": {
       const children = ((obj["children"] as JsonVal[]) ?? []).map((c) => parseNode(c as JsonObj));
-      const subplanTickRate =
-        obj["tick_rate"] != null ? scalarToString(obj["tick_rate"]) : undefined;
-      return {
-        kind: "subplan",
-        successPolicy: String(obj["success_policy"] ?? "BT_SUBPLAN_SUCCEED_ON_SUCCESS"),
-        failurePolicy: String(obj["failure_policy"] ?? "BT_SUBPLAN_FAIL_ON_FAILURE"),
-        ...(subplanTickRate !== undefined && { tickRate: subplanTickRate }),
-        children,
-      };
+      const props: Record<string, unknown> = {};
+      for (const prop of COMPOSITE_SCHEMAS[type] ?? []) {
+        const raw = obj[prop.jsonKey];
+        if (prop.type === "boolean") {
+          props[prop.key] = Boolean(raw ?? prop.default);
+        } else if (prop.type === "enum") {
+          props[prop.key] = String(raw ?? prop.default);
+        } else {
+          // optional text — omit if absent
+          if (raw != null) props[prop.key] = scalarToString(raw);
+        }
+      }
+      return { kind: type, ...props, children } as BtNode;
     }
 
     case "decorator": {

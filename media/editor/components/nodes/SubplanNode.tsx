@@ -1,28 +1,16 @@
 import React from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ChildOrderBadge } from "./ChildOrderBadge";
+import { BT_LABELS } from "../../../../shared/btConstants";
+import { COMPOSITE_SCHEMAS } from "../../../../shared/compositeSchema";
 
-interface SubplanNodeData {
-  successPolicy?: string;
-  failurePolicy?: string;
+const SCHEMA = COMPOSITE_SCHEMAS["subplan"]!;
+
+interface SubplanNodeData extends Record<string, unknown> {
   childIndex?: number | null;
 }
 
-const POLICY_LABELS: Record<string, string> = {
-  BT_SUBPLAN_SUCCEED_ON_SUCCESS: "Succeed on success",
-  BT_SUBPLAN_LOOP_ON_SUCCESS: "Loop on success",
-  BT_SUBPLAN_FAIL_ON_FAILURE: "Fail on failure",
-  BT_SUBPLAN_LOOP_ON_FAILURE: "Loop on failure",
-};
-
 export function SubplanNode({ data }: { data: SubplanNodeData }) {
-  const okLabel = data.successPolicy
-    ? (POLICY_LABELS[data.successPolicy] ?? data.successPolicy)
-    : "—";
-  const failLabel = data.failurePolicy
-    ? (POLICY_LABELS[data.failurePolicy] ?? data.failurePolicy)
-    : "—";
-
   return (
     <div
       style={{
@@ -48,8 +36,20 @@ export function SubplanNode({ data }: { data: SubplanNodeData }) {
           </span>
           <span style={{ fontWeight: 700, fontSize: 12 }}>Subplan</span>
         </div>
-        <Row label="ok" value={okLabel} />
-        <Row label="fail" value={failLabel} />
+        {SCHEMA.map((prop) => {
+          const raw = data[prop.key];
+          // Optional text fields: skip if not set
+          if (prop.type === "text" && (raw == null || raw === "")) return null;
+          let display: string;
+          if (prop.type === "enum") {
+            display = raw != null ? (BT_LABELS[raw as string] ?? String(raw)) : "—";
+          } else if (prop.type === "boolean") {
+            display = raw != null ? (raw ? "yes" : "no") : "—";
+          } else {
+            display = String(raw);
+          }
+          return <Row key={prop.key} label={prop.label} value={display} />;
+        })}
       </div>
       <Handle type="source" position={Position.Bottom} style={{ background: "#FFB300" }} />
     </div>

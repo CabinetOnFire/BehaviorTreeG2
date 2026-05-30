@@ -1,13 +1,10 @@
 import React, { useState } from "react";
 import type { BtNode } from "../../../shared/types";
 import {
-  BT_PARALLEL_FAILURE_POLICIES,
-  BT_PARALLEL_SUCCESS_POLICIES,
-  BT_SUBPLAN_SUCCESS_POLICIES,
-  BT_SUBPLAN_FAILURE_POLICIES,
   BT_ABORT_POLICIES,
   BT_LABELS,
 } from "../../../shared/btConstants";
+import { COMPOSITE_SCHEMAS } from "../../../shared/compositeSchema";
 
 interface NodeConfigPanelProps {
   node: BtNode & { id: string };
@@ -87,9 +84,8 @@ function NodeConfigBody({
     case "decorator":
       return <DecoratorConfig node={node} onUpdate={onUpdate} typeVars={typeVars} />;
     case "parallel":
-      return <ParallelConfig node={node} onUpdate={onUpdate} />;
     case "subplan":
-      return <SubplanConfig node={node} onUpdate={onUpdate} />;
+      return <CompositeConfig node={node} onUpdate={onUpdate} />;
     case "selector":
     case "sequence":
       return (
@@ -291,178 +287,101 @@ function DecoratorConfig({
   );
 }
 
-function ParallelConfig({
+function CompositeConfig({
   node,
   onUpdate,
 }: {
-  node: Extract<BtNode, { kind: "parallel" }>;
+  node: Extract<BtNode, { kind: "parallel" | "subplan" }>;
   onUpdate: (n: BtNode) => void;
 }) {
-  const [tickRateText, setTickRateText] = useState(() =>
-    node.tickRate !== undefined ? String(node.tickRate) : "",
-  );
-  const [rsdText, setRsdText] = useState(() =>
-    node.repeatSecondaryDelay !== undefined ? String(node.repeatSecondaryDelay) : "",
-  );
+  const schema = COMPOSITE_SCHEMAS[node.kind] ?? [];
+  const data = node as unknown as Record<string, unknown>;
 
-  function commitTickRate(raw: string) {
-    const trimmed = raw.trim();
-    if (trimmed === "") {
-      const { tickRate: _removed, ...rest } = node as typeof node & { tickRate?: string };
-      onUpdate(rest as typeof node);
-    } else {
-      onUpdate({ ...node, tickRate: trimmed });
+  // Local text state for optional text fields (committed on blur).
+  const [textValues, setTextValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const prop of schema) {
+      if (prop.type === "text") {
+        init[prop.key] = data[prop.key] !== undefined ? String(data[prop.key]) : "";
+      }
     }
-  }
+    return init;
+  });
 
-  function commitRsd(raw: string) {
+  function commitText(key: string, raw: string) {
     const trimmed = raw.trim();
     if (trimmed === "") {
-      const { repeatSecondaryDelay: _removed, ...rest } = node as typeof node & {
-        repeatSecondaryDelay?: string;
-      };
-      onUpdate(rest as typeof node);
+      const copy = { ...node } as Record<string, unknown>;
+      delete copy[key];
+      onUpdate(copy as unknown as BtNode);
     } else {
-      onUpdate({ ...node, repeatSecondaryDelay: trimmed });
+      onUpdate({ ...node, [key]: trimmed } as BtNode);
     }
   }
 
   return (
     <div>
-      <FieldLabel>Failure Policy</FieldLabel>
-      <select
-        value={node.failurePolicy}
-        onChange={(e) => onUpdate({ ...node, failurePolicy: e.target.value })}
-        style={selectStyle}
-      >
-        {BT_PARALLEL_FAILURE_POLICIES.map((p) => (
-          <option key={p} value={p}>
-            {BT_LABELS[p] ?? p}
-          </option>
-        ))}
-      </select>
+      {schema.map((prop) => {
+        if (prop.type === "enum") {
+          return (
+            <div key={prop.key}>
+              <FieldLabel>{prop.label}</FieldLabel>
+              <select
+                value={(data[prop.key] as string | undefined) ?? prop.default}
+                onChange={(e) => onUpdate({ ...node, [prop.key]: e.target.value } as BtNode)}
+                style={selectStyle}
+              >
+                {prop.values.map((v) => (
+                  <option key={v} value={v}>
+                    {BT_LABELS[v] ?? v}
+                  </option>
+                ))}
+              </select>
+            </div>
+          );
+        }
 
-      <FieldLabel>Success Policy</FieldLabel>
-      <select
-        value={node.successPolicy}
-        onChange={(e) => onUpdate({ ...node, successPolicy: e.target.value })}
-        style={selectStyle}
-      >
-        {BT_PARALLEL_SUCCESS_POLICIES.map((p) => (
-          <option key={p} value={p}>
-            {BT_LABELS[p] ?? p}
-          </option>
-        ))}
-      </select>
+        if (prop.type === "boolean") {
+          const checked = (data[prop.key] as boolean | undefined) ?? prop.default;
+          return (
+            <div key={prop.key}>
+              <FieldLabel>{prop.label}</FieldLabel>
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onUpdate({ ...node, [prop.key]: e.target.checked } as BtNode)}
+              />
+            </div>
+          );
+        }
 
-      <FieldLabel>Repeat Secondary</FieldLabel>
-      <input
-        type="checkbox"
-        checked={node.repeatSecondary}
-        onChange={(e) => onUpdate({ ...node, repeatSecondary: e.target.checked })}
-      />
-
-      <FieldLabel>
-        Repeat Secondary Delay <HintText>— leave blank for default</HintText>
-      </FieldLabel>
-      <input
-        type="text"
-        value={rsdText}
-        onChange={(e) => setRsdText(e.target.value)}
-        onBlur={() => commitRsd(rsdText)}
-        placeholder="default"
-        style={inputStyle}
-      />
-
-      <FieldLabel>Finish on Primary</FieldLabel>
-      <input
-        type="checkbox"
-        checked={node.finishOnPrimary}
-        onChange={(e) => onUpdate({ ...node, finishOnPrimary: e.target.checked })}
-      />
-
-      <FieldLabel>
-        Tick Rate <HintText>— leave blank for default</HintText>
-      </FieldLabel>
-      <input
-        type="text"
-        value={tickRateText}
-        onChange={(e) => setTickRateText(e.target.value)}
-        onBlur={() => commitTickRate(tickRateText)}
-        placeholder="default"
-        style={inputStyle}
-      />
-    </div>
-  );
-}
-
-function SubplanConfig({
-  node,
-  onUpdate,
-}: {
-  node: Extract<BtNode, { kind: "subplan" }>;
-  onUpdate: (n: BtNode) => void;
-}) {
-  const [tickRateText, setTickRateText] = useState(() =>
-    node.tickRate !== undefined ? String(node.tickRate) : "",
-  );
-
-  function commitTickRate(raw: string) {
-    const trimmed = raw.trim();
-    if (trimmed === "") {
-      const { tickRate: _removed, ...rest } = node as typeof node & { tickRate?: string };
-      onUpdate(rest as typeof node);
-    } else {
-      onUpdate({ ...node, tickRate: trimmed });
-    }
-  }
-
-  return (
-    <div>
-      <FieldLabel>Success Policy</FieldLabel>
-      <select
-        value={node.successPolicy}
-        onChange={(e) => onUpdate({ ...node, successPolicy: e.target.value })}
-        style={selectStyle}
-      >
-        {BT_SUBPLAN_SUCCESS_POLICIES.map((p) => (
-          <option key={p} value={p}>
-            {BT_LABELS[p] ?? p}
-          </option>
-        ))}
-      </select>
-
-      <FieldLabel>Failure Policy</FieldLabel>
-      <select
-        value={node.failurePolicy}
-        onChange={(e) => onUpdate({ ...node, failurePolicy: e.target.value })}
-        style={selectStyle}
-      >
-        {BT_SUBPLAN_FAILURE_POLICIES.map((p) => (
-          <option key={p} value={p}>
-            {BT_LABELS[p] ?? p}
-          </option>
-        ))}
-      </select>
-
-      <FieldLabel>
-        Tick Rate <HintText>— leave blank for default</HintText>
-      </FieldLabel>
-      <input
-        type="text"
-        value={tickRateText}
-        onChange={(e) => setTickRateText(e.target.value)}
-        onBlur={() => commitTickRate(tickRateText)}
-        placeholder="default"
-        style={inputStyle}
-      />
-
-      <div style={{ marginTop: 10, fontSize: 10, opacity: 0.5, lineHeight: "16px" }}>
-        <div>Succeed/Fail → identical to sequence</div>
-        <div>Loop/Fail → repeat while succeeding</div>
-        <div>Succeed/Loop → retry until success</div>
-        <div>Loop/Loop → infinite loop</div>
-      </div>
+        // type === "text" (optional)
+        return (
+          <div key={prop.key}>
+            <FieldLabel>
+              {prop.label} <HintText>— leave blank for default</HintText>
+            </FieldLabel>
+            <input
+              type="text"
+              value={textValues[prop.key] ?? ""}
+              placeholder={prop.placeholder}
+              onChange={(e) =>
+                setTextValues((prev) => ({ ...prev, [prop.key]: e.target.value }))
+              }
+              onBlur={() => commitText(prop.key, textValues[prop.key] ?? "")}
+              style={inputStyle}
+            />
+          </div>
+        );
+      })}
+      {node.kind === "subplan" && (
+        <div style={{ marginTop: 10, fontSize: 10, opacity: 0.5, lineHeight: "16px" }}>
+          <div>Succeed/Fail → identical to sequence</div>
+          <div>Loop/Fail → repeat while succeeding</div>
+          <div>Succeed/Loop → retry until success</div>
+          <div>Loop/Loop → infinite loop</div>
+        </div>
+      )}
     </div>
   );
 }

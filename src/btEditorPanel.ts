@@ -28,6 +28,9 @@ export class BtEditorPanel {
   private static readonly viewType = "btEditor";
   static readonly outputChannel = vscode.window.createOutputChannel("BT Editor");
 
+  /** Called after every successful workspace scan so the sidebar browser can refresh. */
+  static onScanComplete: ((result: ScanResult) => void) | undefined;
+
   private readonly _panel: vscode.WebviewPanel;
   private readonly _context: vscode.ExtensionContext;
   private _disposables: vscode.Disposable[] = [];
@@ -39,13 +42,14 @@ export class BtEditorPanel {
   private _activeIndex = 0;
   private _isDirtyMirror = false;
 
-  private static readonly _CACHE_SCAN = "btEditor.scanCache";
+  static readonly CACHE_SCAN = "btEditor.scanCache";
+  private static readonly _CACHE_SCAN = BtEditorPanel.CACHE_SCAN;
 
   static createOrShow(
     context: vscode.ExtensionContext,
     uri: vscode.Uri | undefined,
   ) {
-    const column = vscode.ViewColumn.Beside;
+    const column = vscode.ViewColumn.Active;
     if (BtEditorPanel.currentPanel) {
       BtEditorPanel.currentPanel._panel.reveal(column);
       if (uri) BtEditorPanel.currentPanel._openFile(uri);
@@ -336,6 +340,7 @@ export class BtEditorPanel {
     this._post({ type: "subtrees_loaded", subtrees: r.subtrees, controllers: r.controllers });
     this._post({ type: "behaviors_loaded", behaviors: r.behaviors });
     this._post({ type: "type_vars_loaded", typeVars: r.typeVars });
+    BtEditorPanel.onScanComplete?.(r);
   }
 
   // ── Message handling ──────────────────────────────────────────────────────
