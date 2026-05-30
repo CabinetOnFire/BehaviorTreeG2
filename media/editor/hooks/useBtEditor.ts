@@ -33,8 +33,7 @@ export interface BtEditorState {
   nodes: Node[];
   edges: Edge[];
   pendingGroups: PendingGroup[];
-  selectedNodeId: string | null;
-  clipboard: BtNode | null;
+  clipboard: BtNode[];
   isDirty: boolean;
   layoutVersion: number;
   behaviors: string[] | null;
@@ -127,8 +126,7 @@ export function useBtEditor() {
     nodes: [],
     edges: [],
     pendingGroups: [],
-    selectedNodeId: null,
-    clipboard: null,
+    clipboard: [],
     isDirty: false,
     layoutVersion: 0,
     behaviors: null,
@@ -245,31 +243,38 @@ export function useBtEditor() {
 
         const treeNodes = btTreeNodes(s.nodes);
         let root = sub.root;
-        let newPendingGroups = s.pendingGroups;
+        let newPendingGroups = [...s.pendingGroups];
         const removedNodeIds = new Set<string>();
         const removedEdgeIds = new Set<string>();
-        let changed = false;
 
+        // Collect tree-node IDs to remove in one pass, and handle pending nodes per group
+        const treeRemoveIds = new Set<string>();
         for (const change of removals) {
           if (change.type !== "remove") continue;
           const nodeId = change.id;
-
           if (nodeId === ROOT_NODE_ID) continue;
 
           if (nodeId.startsWith("pending-")) {
             const groupIdx = newPendingGroups.findIndex((g) => g.nodeIds.includes(nodeId));
-            if (groupIdx >= 0) {
-              const group = newPendingGroups[groupIdx];
-              group.nodeIds.forEach((id) => removedNodeIds.add(id));
-              group.edgeIds.forEach((id) => removedEdgeIds.add(id));
-              newPendingGroups = newPendingGroups.filter((_, i) => i !== groupIdx);
-              changed = true;
+            if (groupIdx < 0) continue;
+            const result = extractFromPendingGroup(newPendingGroups[groupIdx], nodeId, s.edges);
+            if (!result) continue;
+            result.removedNodeIds.forEach((id) => removedNodeIds.add(id));
+            result.removedEdgeIds.forEach((id) => removedEdgeIds.add(id));
+            if (result.updatedGroup === null) {
+              newPendingGroups.splice(groupIdx, 1);
+            } else {
+              newPendingGroups[groupIdx] = result.updatedGroup;
             }
           } else {
-            const { newRoot, extracted } = extractNodeFromTree(root, nodeId, treeNodes);
-            if (extracted) { root = newRoot; changed = true; }
+            treeRemoveIds.add(nodeId);
           }
-          break;
+        }
+
+        let changed = removedNodeIds.size > 0;
+        if (treeRemoveIds.size > 0) {
+          const newRoot = removeMultipleFromTree(root, treeRemoveIds, treeNodes);
+          if (newRoot !== root) { root = newRoot; changed = true; }
         }
 
         if (!changed) return { ...s, nodes: applyNodeChanges(others, s.nodes) };
@@ -285,7 +290,6 @@ export function useBtEditor() {
           nodes: [...treeNodes2, ...pn],
           edges: [...treeEdges, ...pe],
           pendingGroups: newPendingGroups,
-          selectedNodeId: null,
           isDirty: true,
           past: [...s.past, snapshot(s)].slice(-50),
           future: [],
@@ -322,11 +326,10 @@ export function useBtEditor() {
     [postMessage],
   );
 
-  const selectNode = useCallback((nodeId: string | null) => {
+  const clearSelection = useCallback(() => {
     setState((s) => ({
       ...s,
-      selectedNodeId: nodeId,
-      nodes: s.nodes.map((n) => (n.selected === (n.id === nodeId) ? n : { ...n, selected: n.id === nodeId })),
+      nodes: s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
     }));
   }, []);
 
@@ -367,13 +370,18 @@ export function useBtEditor() {
           const removedEdgeIds = new Set<string>();
           let oldRootBt = sub.root;
 
-          const groupIdx = s.pendingGroups.findIndex((g) => g.rootNodeId === childId);
-          if (groupIdx >= 0) {
-            const group = s.pendingGroups[groupIdx];
-            childBtNode = group.btNode;
-            newPendingGroups = s.pendingGroups.filter((_, i) => i !== groupIdx);
-            group.nodeIds.forEach((id) => removedNodeIds.add(id));
-            group.edgeIds.forEach((id) => removedEdgeIds.add(id));
+          const pendingGroupIdx = s.pendingGroups.findIndex((g) => g.nodeIds.includes(childId));
+          if (pendingGroupIdx >= 0) {
+            const result = extractFromPendingGroup(s.pendingGroups[pendingGroupIdx], childId, s.edges);
+            if (!result) return s;
+            childBtNode = result.extracted;
+            result.removedNodeIds.forEach((id) => removedNodeIds.add(id));
+            result.removedEdgeIds.forEach((id) => removedEdgeIds.add(id));
+            if (result.updatedGroup === null) {
+              newPendingGroups.splice(pendingGroupIdx, 1);
+            } else {
+              newPendingGroups[pendingGroupIdx] = result.updatedGroup;
+            }
           } else {
             const alreadyConnected = s.edges.find(
               (e) => e.source === ROOT_NODE_ID && e.target === childId,
@@ -436,19 +444,24 @@ export function useBtEditor() {
         if (!isComposite(parentBt) && parentBt.kind !== "decorator") return s;
 
         let childBtNode: BtNode | null = null;
-        let newPendingGroups = s.pendingGroups;
+        let newPendingGroups = [...s.pendingGroups];
         const removedNodeIds = new Set<string>();
         const removedEdgeIds = new Set<string>();
         let treeRoot = sub.root;
         let adjustedParentIdx = parentIdx;
 
-        const groupIdx = s.pendingGroups.findIndex((g) => g.rootNodeId === childId);
-        if (groupIdx >= 0) {
-          const group = s.pendingGroups[groupIdx];
-          childBtNode = group.btNode;
-          newPendingGroups = s.pendingGroups.filter((_, i) => i !== groupIdx);
-          group.nodeIds.forEach((id) => removedNodeIds.add(id));
-          group.edgeIds.forEach((id) => removedEdgeIds.add(id));
+        const pendingGroupIdx = s.pendingGroups.findIndex((g) => g.nodeIds.includes(childId));
+        if (pendingGroupIdx >= 0) {
+          const result = extractFromPendingGroup(s.pendingGroups[pendingGroupIdx], childId, s.edges);
+          if (!result) return s;
+          childBtNode = result.extracted;
+          result.removedNodeIds.forEach((id) => removedNodeIds.add(id));
+          result.removedEdgeIds.forEach((id) => removedEdgeIds.add(id));
+          if (result.updatedGroup === null) {
+            newPendingGroups.splice(pendingGroupIdx, 1);
+          } else {
+            newPendingGroups[pendingGroupIdx] = result.updatedGroup;
+          }
         } else {
           const existingEdge = s.edges.find((e) => e.source === parentId && e.target === childId);
           if (existingEdge) return s;
@@ -735,11 +748,16 @@ export function useBtEditor() {
     [postMessage],
   );
 
-  const copyNode = useCallback((nodeId: string) => {
+  const copyNodes = useCallback((nodeIds: string[]) => {
     setState((s) => {
-      const node = s.nodes.find((n) => n.id === nodeId);
-      if (!node || nodeId === ROOT_NODE_ID) return s;
-      return { ...s, clipboard: node.data._btNode as BtNode };
+      const items: BtNode[] = [];
+      for (const nodeId of nodeIds) {
+        if (nodeId === ROOT_NODE_ID) continue;
+        const node = s.nodes.find((n) => n.id === nodeId);
+        if (node) items.push(node.data._btNode as BtNode);
+      }
+      if (items.length === 0) return s;
+      return { ...s, clipboard: items };
     });
   }, []);
 
@@ -799,8 +817,8 @@ export function useBtEditor() {
     connectOrMove,
     replaceNode,
     replaceRoot,
-    copyNode,
-    selectNode,
+    copyNodes,
+    clearSelection,
     relayout,
     undo,
     redo,
@@ -999,4 +1017,137 @@ function _replaceNodeInTree(
 
 function isComposite(node: BtNode): node is Extract<BtNode, { children: BtNode[] }> {
   return node.kind === "selector" || node.kind === "sequence" || node.kind === "parallel" || node.kind === "subplan";
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Pending-group extraction helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the BtNode subtree rooted at DFS index `targetIdx` from `root`.
+ * Returns the modified tree (null if root itself was extracted), the extracted
+ * subtree, and the count of nodes removed.
+ */
+function extractBtNodeAtDfsIndex(
+  root: BtNode,
+  targetIdx: number,
+): { newRoot: BtNode | null; extracted: BtNode | null; removedCount: number } {
+  let counter = 0;
+  let extracted: BtNode | null = null;
+  let removedCount = 0;
+
+  function walk(node: BtNode): BtNode | null {
+    const idx = counter++;
+    if (idx === targetIdx) {
+      extracted = node;
+      removedCount = _countBtNodes(node);
+      counter += removedCount - 1;
+      return null;
+    }
+    switch (node.kind) {
+      case "selector":
+      case "sequence":
+      case "parallel":
+      case "subplan": {
+        const kids: BtNode[] = [];
+        for (const c of node.children) {
+          const r = walk(c);
+          if (r !== null) kids.push(r);
+        }
+        return { ...node, children: kids };
+      }
+      case "decorator": {
+        if (!node.child) return node;
+        const newChild = walk(node.child);
+        return { ...node, child: newChild ?? undefined };
+      }
+      case "leaf":
+      case "subtree":
+        return node;
+    }
+  }
+
+  const newRoot = walk(root);
+  return { newRoot, extracted, removedCount };
+}
+
+/**
+ * Extract the sub-tree rooted at `nodeId` from a pending group.
+ * Returns the updated group (null if the whole group was extracted),
+ * the extracted BtNode, and the sets of RF node/edge IDs that were removed.
+ * Returns null if `nodeId` is not found in the group.
+ */
+function extractFromPendingGroup(
+  group: PendingGroup,
+  nodeId: string,
+  rfEdges: Edge[],
+): {
+  updatedGroup: PendingGroup | null;
+  extracted: BtNode | null;
+  removedNodeIds: Set<string>;
+  removedEdgeIds: Set<string>;
+} | null {
+  const idx = group.nodeIds.indexOf(nodeId);
+  if (idx < 0) return null;
+
+  const { newRoot, extracted, removedCount } = extractBtNodeAtDfsIndex(group.btNode, idx);
+  const removedNodeIds = new Set(group.nodeIds.slice(idx, idx + removedCount));
+  const removedEdgeIds = new Set<string>(
+    group.edgeIds.filter((eid) => {
+      const e = rfEdges.find((e) => e.id === eid);
+      return e !== undefined && (removedNodeIds.has(e.source) || removedNodeIds.has(e.target));
+    }),
+  );
+
+  const updatedGroup: PendingGroup | null =
+    newRoot === null
+      ? null
+      : {
+          ...group,
+          btNode: newRoot,
+          nodeIds: group.nodeIds.filter((id) => !removedNodeIds.has(id)),
+          edgeIds: group.edgeIds.filter((id) => !removedEdgeIds.has(id)),
+        };
+
+  return { updatedGroup, extracted, removedNodeIds, removedEdgeIds };
+}
+
+/**
+ * Remove all nodes whose RF id is in `removeIds` from the BtNode tree in one
+ * DFS pass. Uses `treeNodes` (in DFS order) to map RF ids to tree positions.
+ */
+function removeMultipleFromTree(root: BtNode, removeIds: Set<string>, treeNodes: Node[]): BtNode {
+  const idOrder = treeNodes.map((n) => n.id);
+  let counter = 0;
+
+  function walk(node: BtNode): BtNode | null {
+    const id = idOrder[counter++];
+    if (removeIds.has(id)) {
+      counter += _countBtNodes(node) - 1;
+      return null;
+    }
+    switch (node.kind) {
+      case "selector":
+      case "sequence":
+      case "parallel":
+      case "subplan": {
+        const kids: BtNode[] = [];
+        for (const c of node.children) {
+          const r = walk(c);
+          if (r !== null) kids.push(r);
+        }
+        return { ...node, children: kids };
+      }
+      case "decorator": {
+        if (!node.child) return node;
+        const newChild = walk(node.child);
+        return { ...node, child: newChild ?? undefined };
+      }
+      case "leaf":
+      case "subtree":
+        return node;
+    }
+  }
+
+  return walk(root) ?? root;
 }

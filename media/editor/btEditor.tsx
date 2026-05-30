@@ -54,7 +54,7 @@ function BtEditorInner() {
     revealInFile,
     revealType,
     updateNode,
-    selectNode,
+    clearSelection,
     relayout,
     onNodesChange,
     onEdgesChange,
@@ -63,7 +63,7 @@ function BtEditorInner() {
     connectOrMove,
     replaceNode,
     replaceRoot,
-    copyNode,
+    copyNodes,
     openSubtree,
     undo,
     redo,
@@ -112,36 +112,42 @@ function BtEditorInner() {
         e.preventDefault();
         redo();
       } else if (mod && e.key === "c") {
-        if (!inField && state.selectedNodeId) {
+        if (inField) return;
+        const selectedIds = state.nodes
+          .filter((n) => n.selected && n.id !== ROOT_NODE_ID)
+          .map((n) => n.id);
+        if (selectedIds.length > 0) {
           e.preventDefault();
-          copyNode(state.selectedNodeId);
+          copyNodes(selectedIds);
         }
       } else if (mod && e.key === "v") {
-        if (!inField && state.clipboard) {
+        if (inField) return;
+        if (state.clipboard.length > 0) {
           e.preventDefault();
           const center = screenToFlowPosition({
             x: window.innerWidth / 2,
             y: window.innerHeight / 2,
           });
-          addPendingNode(state.clipboard, center.x, center.y);
+          state.clipboard.forEach((btNode, i) => {
+            addPendingNode(btNode, center.x + i * 30, center.y + i * 30);
+          });
         }
       } else if ((e.key === "Delete" || e.key === "Backspace") && !inField) {
-        if (state.selectedNodeId && state.selectedNodeId !== ROOT_NODE_ID) {
+        const selectedIds = state.nodes
+          .filter((n) => n.selected && n.id !== ROOT_NODE_ID)
+          .map((n) => n.id);
+        if (selectedIds.length > 0) {
           e.preventDefault();
-          onNodesChange([{ type: "remove", id: state.selectedNodeId }]);
+          onNodesChange(selectedIds.map((id) => ({ type: "remove" as const, id })));
         }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [saveAst, undo, redo, copyNode, addPendingNode, screenToFlowPosition, onNodesChange, state]);
+  }, [saveAst, undo, redo, copyNodes, addPendingNode, screenToFlowPosition, onNodesChange, state]);
 
-  const onNodeClick: NodeMouseHandler = useCallback(
-    (_e, node: Node) => {
-      selectNode(node.id);
-    },
-    [selectNode],
-  );
+  // ReactFlow handles single/multi-selection natively; no manual tracking needed.
+  const onNodeClick: NodeMouseHandler = useCallback((_e, _node: Node) => {}, []);
 
   const onNodeDoubleClick: NodeMouseHandler = useCallback(
     (_e, node: Node) => {
@@ -176,9 +182,8 @@ function BtEditorInner() {
   );
 
   const onPaneClick = useCallback(() => {
-    selectNode(null);
     setCtxMenu(null);
-  }, [selectNode]);
+  }, []);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -272,10 +277,11 @@ function BtEditorInner() {
     [connectOrMove],
   );
 
-  const selectedNode = state.selectedNodeId
-    ? state.nodes.find((n) => n.id === state.selectedNodeId)
-    : null;
-
+  // Show config panel only for a single selected tree node (not root, not pending).
+  const selectedTreeNodes = state.nodes.filter(
+    (n) => n.selected && n.id !== ROOT_NODE_ID && !n.id.startsWith("pending-"),
+  );
+  const selectedNode = selectedTreeNodes.length === 1 ? selectedTreeNodes[0] : null;
   const selectedBtNode = selectedNode ? (selectedNode.data._btNode as BtNode) : null;
 
   const activeSub = state.subtrees[state.activeIndex];
@@ -475,6 +481,8 @@ function BtEditorInner() {
                   fitView
                   panOnDrag={[1, 2]}
                   panOnScroll={true}
+                  multiSelectionKeyCode="Control"
+                  selectionKeyCode={null}
                   proOptions={{ hideAttribution: true }}
                 >
                   <Controls />
@@ -500,11 +508,11 @@ function BtEditorInner() {
               </div>
             </div>
 
-            {selectedBtNode && state.selectedNodeId && (
+            {selectedBtNode && selectedNode && (
               <NodeConfigPanel
-                node={{ ...selectedBtNode, id: state.selectedNodeId }}
-                onUpdate={(updated) => updateNode(state.selectedNodeId!, updated)}
-                onClose={() => selectNode(null)}
+                node={{ ...selectedBtNode, id: selectedNode.id }}
+                onUpdate={(updated) => updateNode(selectedNode.id, updated)}
+                onClose={() => clearSelection()}
                 typeVars={state.typeVars}
               />
             )}

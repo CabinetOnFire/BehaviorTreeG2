@@ -5,6 +5,7 @@ import type { SubtreeDescriptor } from "../shared/types";
 import { parseJsonFile } from "./parser/btJsonParser";
 import {
   writeSubtreeToFile,
+  createEmptyBtJson,
   deployJsonToDm,
   deployAllJsonToDm,
   scanAll,
@@ -235,8 +236,27 @@ export class BtEditorPanel {
     // Load all referenced JSON files
     const subtrees: SubtreeDescriptor[] = [];
     for (const ref of refs) {
+      const jsonUri = vscode.Uri.file(ref.jsonPath);
+
+      let fileExists = true;
       try {
-        const jBytes = await vscode.workspace.fs.readFile(vscode.Uri.file(ref.jsonPath));
+        await vscode.workspace.fs.stat(jsonUri);
+      } catch {
+        fileExists = false;
+      }
+
+      if (!fileExists) {
+        const answer = await vscode.window.showInformationMessage(
+          `'${path.basename(ref.jsonPath)}' does not exist. Create it?`,
+          "Create",
+          "Skip",
+        );
+        if (answer !== "Create") continue;
+        await createEmptyBtJson(jsonUri);
+      }
+
+      try {
+        const jBytes = await vscode.workspace.fs.readFile(jsonUri);
         const root = parseJsonFile(Buffer.from(jBytes).toString("utf8"));
         subtrees.push({
           typePath: ref.typePath,

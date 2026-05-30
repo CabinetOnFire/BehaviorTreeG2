@@ -49,6 +49,15 @@ export async function writeSubtreeToFile(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Create: write a minimal empty-selector .bt.json file
+// ──────────────────────────────────────────────────────────────────────────────
+
+export async function createEmptyBtJson(uri: vscode.Uri): Promise<void> {
+  const content = JSON.stringify({ type: "selector", children: [] }, null, "\t");
+  await vscode.workspace.fs.writeFile(uri, Buffer.from(content, "utf-8"));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Deploy: generate a standalone .dm file with behavior_nodes = list(...)
 // ──────────────────────────────────────────────────────────────────────────────
 

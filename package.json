@@ -3,7 +3,9 @@
   "displayName": "BehaviorTreeG",
   "description": "Visual behavior tree editor for tgstation's implementation of behavior trees",
   "version": "0.1.0",
+  "icon": "media/bt-editor-logo.png",
   "license": "GPL-3.0",
+  "publisher": "behaviortreeg",
   "repository": {
     "type": "git",
     "url": "https://github.com/CabinetOnFire/BehaviorTreeG"

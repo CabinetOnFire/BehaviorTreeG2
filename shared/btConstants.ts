@@ -78,7 +78,7 @@ export const BT_LABELS: Record<string, string> = {
   [BT_SUBPLAN_SUCCEED_ON_SUCCESS]: "Succeed on success",
   [BT_SUBPLAN_LOOP_ON_SUCCESS]: "Loop on success",
   [BT_SUBPLAN_FAIL_ON_FAILURE]: "Fail on failure",
-  [BT_SUBPLAN_LOOP_ON_FAILURE]: "Loop on failure (retry)",
+  [BT_SUBPLAN_LOOP_ON_FAILURE]: "Loop on failure",
   [BT_ABORT_NONE]: "Do not abort on condition change",
   [BT_ABORT_SELF]: "Abort self on condition change",
   [BT_ABORT_LOWER_PRIORITY]: "Abort lower priority branches on condition change",
