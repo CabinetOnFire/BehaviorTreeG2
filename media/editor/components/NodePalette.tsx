@@ -228,7 +228,7 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
                   <BrowserItem
                     key={c.typePath}
                     typePath={c.typePath}
-                    color="#F06292"
+                    color={c.jsonPath ? "#F06292" : "#F44336"}
                     onClick={() => onOpen(c.typePath, c.filePath, c.jsonPath, true)}
                     onDoubleClick={() => onRevealType(c.typePath)}
                   />

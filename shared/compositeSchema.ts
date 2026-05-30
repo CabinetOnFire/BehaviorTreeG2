@@ -87,14 +87,6 @@ export const COMPOSITE_SCHEMAS: Record<string, PropSchema[]> = {
       label: "Finish on Primary",
       default: true,
     },
-    {
-      type: "text",
-      key: "tickRate",
-      jsonKey: "tick_rate",
-      label: "Tick Rate",
-      optional: true,
-      placeholder: "default",
-    },
   ],
 
   subplan: [
@@ -116,9 +108,9 @@ export const COMPOSITE_SCHEMAS: Record<string, PropSchema[]> = {
     },
     {
       type: "text",
-      key: "tickRate",
-      jsonKey: "tick_rate",
-      label: "Tick Rate",
+      key: "loopDelay",
+      jsonKey: "loop_delay",
+      label: "Loop Delay",
       optional: true,
       placeholder: "default",
     },

@@ -82,7 +82,6 @@ function codegenNode(node: BtNode, depth: number): string {
       const rs = node.repeatSecondary ? "TRUE" : "FALSE";
       const rsd = node.repeatSecondaryDelay;
       const fop = node.finishOnPrimary ? "TRUE" : "FALSE";
-      const tr = node.tickRate;
 
       if (node.children.length === 0) {
         return (
@@ -90,8 +89,7 @@ function codegenNode(node: BtNode, depth: number): string {
           `"failure_policy" = ${fp}, "success_policy" = ${sp}, ` +
           `"repeat_secondary" = ${rs}` +
           `${rsd !== undefined ? `, "repeat_secondary_delay" = ${emitValue(rsd)}` : ""}` +
-          `, "finish_on_primary" = ${fop}` +
-          `${tr !== undefined ? `, "tick_rate" = ${emitValue(tr)}` : ""}, "__c" = list())`
+          `, "finish_on_primary" = ${fop}, "__c" = list())`
         );
       }
 
@@ -107,7 +105,6 @@ function codegenNode(node: BtNode, depth: number): string {
         `${innerIndent}"repeat_secondary" = ${rs},\n` +
         (rsd !== undefined ? `${innerIndent}"repeat_secondary_delay" = ${emitValue(rsd)},\n` : "") +
         `${innerIndent}"finish_on_primary" = ${fop},\n` +
-        (tr !== undefined ? `${innerIndent}"tick_rate" = ${emitValue(tr)},\n` : "") +
         `${innerIndent}"__c" = list(\n` +
         `${childLines}\n` +
         `${innerIndent})\n` +
@@ -118,13 +115,13 @@ function codegenNode(node: BtNode, depth: number): string {
     case "subplan": {
       const sp = node.successPolicy;
       const fp = node.failurePolicy;
-      const tr = node.tickRate;
+      const ld = node.loopDelay;
 
       if (node.children.length === 0) {
         return (
           `list("__t" = /datum/bt_node/composite/subplan, ` +
           `"success_policy" = ${sp}, "failure_policy" = ${fp}` +
-          `${tr !== undefined ? `, "tick_rate" = ${emitValue(tr)}` : ""}, "__c" = list())`
+          `${ld !== undefined ? `, "loop_delay" = ${emitValue(ld)}` : ""}, "__c" = list())`
         );
       }
 
@@ -137,7 +134,7 @@ function codegenNode(node: BtNode, depth: number): string {
         `${innerIndent}"__t" = /datum/bt_node/composite/subplan,\n` +
         `${innerIndent}"success_policy" = ${sp},\n` +
         `${innerIndent}"failure_policy" = ${fp},\n` +
-        (tr !== undefined ? `${innerIndent}"tick_rate" = ${emitValue(tr)},\n` : "") +
+        (ld !== undefined ? `${innerIndent}"loop_delay" = ${emitValue(ld)},\n` : "") +
         `${innerIndent}"__c" = list(\n` +
         `${childLines}\n` +
         `${innerIndent})\n` +

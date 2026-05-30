@@ -8,14 +8,13 @@ export type BtNode =
       repeatSecondary: boolean;
       repeatSecondaryDelay?: string;
       finishOnPrimary: boolean;
-      tickRate?: string;
       children: BtNode[];
     }
   | {
       kind: "subplan";
       successPolicy: string;
       failurePolicy: string;
-      tickRate?: string;
+      loopDelay?: string;
       children: BtNode[];
     }
   | { kind: "leaf"; behaviorType: string; args: string[] }

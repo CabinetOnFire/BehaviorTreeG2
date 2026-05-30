@@ -86,13 +86,20 @@ function nodeSize(btNode: BtNode): { width: number; height: number } {
 
 function nodeType(btNode: BtNode): string {
   switch (btNode.kind) {
-    case "selector": return "selectorNode";
-    case "sequence": return "sequenceNode";
-    case "parallel": return "parallelNode";
-    case "subplan": return "subplanNode";
-    case "leaf": return "leafNode";
-    case "subtree": return "subtreeNode";
-    case "decorator": return "decoratorNode";
+    case "selector":
+      return "selectorNode";
+    case "sequence":
+      return "sequenceNode";
+    case "parallel":
+      return "parallelNode";
+    case "subplan":
+      return "subplanNode";
+    case "leaf":
+      return "leafNode";
+    case "subtree":
+      return "subtreeNode";
+    case "decorator":
+      return "decoratorNode";
   }
 }
 
