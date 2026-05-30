@@ -102,20 +102,12 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
     case "sequence":
       return {};
     case "parallel":
-      return {
-        failurePolicy: btNode.failurePolicy,
-        successPolicy: btNode.successPolicy,
-        repeatSecondary: btNode.repeatSecondary,
-        repeatSecondaryDelay: btNode.repeatSecondaryDelay,
-        finishOnPrimary: btNode.finishOnPrimary,
-        tickRate: btNode.tickRate,
-      };
-    case "subplan":
-      return {
-        successPolicy: btNode.successPolicy,
-        failurePolicy: btNode.failurePolicy,
-        tickRate: btNode.tickRate,
-      };
+    case "subplan": {
+      const src = btNode as unknown as Record<string, unknown>;
+      const data: Record<string, unknown> = {};
+      for (const prop of COMPOSITE_SCHEMAS[btNode.kind] ?? []) data[prop.key] = src[prop.key];
+      return data;
+    }
     case "leaf":
       return { behaviorType: btNode.behaviorType, args: btNode.args };
     case "subtree":
