@@ -1,6 +1,7 @@
 import dagre from "@dagrejs/dagre";
 import type { Node, Edge } from "@xyflow/react";
 import type { BtNode } from "../../../shared/types";
+import { COMPOSITE_SCHEMAS } from "../../../shared/compositeSchema";
 
 export const ROOT_NODE_ID = "__root__";
 const ROOT_W = 80;
@@ -105,12 +106,15 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
         failurePolicy: btNode.failurePolicy,
         successPolicy: btNode.successPolicy,
         repeatSecondary: btNode.repeatSecondary,
+        repeatSecondaryDelay: btNode.repeatSecondaryDelay,
         finishOnPrimary: btNode.finishOnPrimary,
+        tickRate: btNode.tickRate,
       };
     case "subplan":
       return {
         successPolicy: btNode.successPolicy,
         failurePolicy: btNode.failurePolicy,
+        tickRate: btNode.tickRate,
       };
     case "leaf":
       return { behaviorType: btNode.behaviorType, args: btNode.args };

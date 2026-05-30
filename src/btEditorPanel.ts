@@ -75,7 +75,7 @@ export class BtEditorPanel {
     const panel = vscode.window.createWebviewPanel(
       BtEditorPanel.viewType,
       "BT Editor",
-      vscode.ViewColumn.Beside,
+      vscode.ViewColumn.Active,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
