@@ -3,11 +3,7 @@ import * as path from "path";
 import type { ExtMsg, WebMsg } from "../shared/messaging";
 import type { SubtreeDescriptor } from "../shared/types";
 import { parseJsonFile } from "./parser/btJsonParser";
-import {
-  writeSubtreeToFile,
-  createEmptyBtJson,
-  scanAll,
-} from "./fileSync";
+import { writeSubtreeToFile, createEmptyBtJson, scanAll } from "./fileSync";
 import type { ScanResult } from "./fileSync";
 
 function debounce<T extends (...args: Parameters<T>) => void>(fn: T, ms: number): T {
@@ -199,16 +195,22 @@ export class BtEditorPanel {
    * Falls back to the workspace scan cache to match multiple subtrees in one dm.
    */
   private async _openDmFile(dmUri: vscode.Uri, targetTypePath?: string) {
+    const log = BtEditorPanel.outputChannel;
+    log.appendLine(
+      `[openDmFile] ${dmUri.fsPath}${targetTypePath ? ` (target: ${targetTypePath})` : ""}`,
+    );
+
     let bytes: Uint8Array;
     try {
       bytes = await vscode.workspace.fs.readFile(dmUri);
     } catch (e) {
+      log.appendLine(`[openDmFile] ERROR reading DM file: ${e}`);
       vscode.window.showErrorMessage(`BT Editor: cannot read ${dmUri.fsPath}: ${e}`);
       return;
     }
     const dmText = Buffer.from(bytes).toString("utf8");
 
-    // Actually let's do a line-by-line scan to be precise
+    // Line-by-line scan for behavior_tree_json assignments
     const rawRefs: Array<{ typePath: string; relPath: string }> = [];
     let currentType = "";
     for (const line of dmText.split(/\r?\n/)) {
@@ -221,6 +223,7 @@ export class BtEditorPanel {
         if (m) rawRefs.push({ typePath: currentType, relPath: m[1] });
       }
     }
+    log.appendLine(`[openDmFile] found ${rawRefs.length} behavior_tree_json ref(s): ${rawRefs.map((r) => `${r.typePath} → "${r.relPath}"`).join(", ") || "(none)"}`);
 
     const refs: Array<{ typePath: string; jsonPath: string }> = [];
     for (const { typePath, relPath } of rawRefs) {
@@ -230,21 +233,42 @@ export class BtEditorPanel {
       try {
         await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
         jsonFsPath = absPath;
+        log.appendLine(`[openDmFile] ${typePath}: resolved DM-relative → ${absPath}`);
       } catch {
+        log.appendLine(`[openDmFile] ${typePath}: DM-relative path not found, trying workspace search for "${relPath}"`);
         const found = await vscode.workspace.findFiles(relPath.replace(/\\/g, "/"), null, 1);
-        if (found[0]) jsonFsPath = found[0].fsPath;
+        if (found[0]) {
+          jsonFsPath = found[0].fsPath;
+          log.appendLine(`[openDmFile] ${typePath}: workspace search found → ${jsonFsPath}`);
+        }
       }
-      if (jsonFsPath) refs.push({ typePath, jsonPath: jsonFsPath });
+      if (!jsonFsPath) {
+        // File not found — compute best-guess path (workspace-root-relative) so the
+        // "does not exist, create?" prompt downstream can handle it instead of silently skipping.
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        jsonFsPath = wsRoot ? path.join(wsRoot, ...relPath.split("/")) : absPath;
+        log.appendLine(`[openDmFile] ${typePath}: file not found anywhere, guessed path → ${jsonFsPath}`);
+      }
+      refs.push({ typePath, jsonPath: jsonFsPath });
     }
 
     if (refs.length === 0) {
       if (targetTypePath) {
+        log.appendLine(`[openDmFile] no behavior_tree_json in file, prompting to create for ${targetTypePath}`);
         await this._promptCreateBtJson(dmUri, targetTypePath);
       } else {
+        log.appendLine(`[openDmFile] no behavior_tree_json refs and no target type — nothing to open`);
         vscode.window.showWarningMessage(
           `BT Editor: no "behavior_tree_json" references found in ${path.basename(dmUri.fsPath)}.`,
         );
       }
+      return;
+    }
+
+    // Specific type requested but has no behavior_tree_json (other types in the file do)
+    if (targetTypePath && !refs.some((r) => r.typePath === targetTypePath)) {
+      log.appendLine(`[openDmFile] ${targetTypePath} has no behavior_tree_json (${refs.length} other ref(s) in file), prompting to create`);
+      await this._promptCreateBtJson(dmUri, targetTypePath);
       return;
     }
 
@@ -261,13 +285,18 @@ export class BtEditorPanel {
       }
 
       if (!fileExists) {
+        log.appendLine(`[openDmFile] ${ref.typePath}: JSON file missing at ${ref.jsonPath}, prompting user`);
         const answer = await vscode.window.showInformationMessage(
-          `'${path.basename(ref.jsonPath)}' does not exist. Create it?`,
+          `No JSON initialized for ${ref.typePath}. Create '${path.basename(ref.jsonPath)}' now?`,
           "Create",
           "Skip",
         );
-        if (answer !== "Create") continue;
+        if (answer !== "Create") {
+          log.appendLine(`[openDmFile] ${ref.typePath}: user skipped creation`);
+          continue;
+        }
         await createEmptyBtJson(jsonUri);
+        log.appendLine(`[openDmFile] ${ref.typePath}: created empty JSON at ${ref.jsonPath}`);
       }
 
       try {
@@ -279,15 +308,16 @@ export class BtEditorPanel {
           dmPath: dmUri.fsPath,
           root,
         };
-        // Migrate: write dm_type if the file is missing it. Can probably remove this before I PR because I'm doing this before v1.0
         if (!dmType) writeSubtreeToFile(descriptor, root).catch(() => undefined);
         subtrees.push(descriptor);
-      } catch {
-        // Skip unreadable JSON files. add errors later >:3
+        log.appendLine(`[openDmFile] ${ref.typePath}: loaded OK`);
+      } catch (e) {
+        log.appendLine(`[openDmFile] ${ref.typePath}: ERROR parsing JSON at ${ref.jsonPath}: ${e}`);
       }
     }
 
     if (subtrees.length === 0) {
+      log.appendLine(`[openDmFile] no subtrees loaded — all refs failed or were skipped`);
       vscode.window.showWarningMessage(
         `BT Editor: could not load any .bt.json files referenced by ${path.basename(dmUri.fsPath)}.`,
       );
@@ -313,18 +343,15 @@ export class BtEditorPanel {
 
   /** Offer to create a .bt.json and wire it into the DM file for an unmigrated type. */
   private async _promptCreateBtJson(dmUri: vscode.Uri, typePath: string): Promise<void> {
+    const log = BtEditorPanel.outputChannel;
     const typeName = typePath.split("/").filter(Boolean).pop() ?? "tree";
     const suggestedFileName = `${typeName}.bt.json`;
 
-    const answer = await vscode.window.showInformationMessage(
-      `No behavior_tree_json found for ${typePath}. Create '${suggestedFileName}'?`,
-      "Create",
-      "Cancel",
-    );
-    if (answer !== "Create") return;
+    log.appendLine(`[promptCreateBtJson] ${typePath} → creating ${suggestedFileName} in ${path.dirname(dmUri.fsPath)}`);
 
     const jsonUri = vscode.Uri.file(path.join(path.dirname(dmUri.fsPath), suggestedFileName));
     await createEmptyBtJson(jsonUri);
+    log.appendLine(`[promptCreateBtJson] created ${jsonUri.fsPath}`);
 
     // Insert the behavior_tree_json line after the type declaration in the DM file
     const doc = await vscode.workspace.openTextDocument(dmUri);
@@ -341,6 +368,22 @@ export class BtEditorPanel {
       );
       await vscode.workspace.applyEdit(edit);
       await doc.save();
+      log.appendLine(`[promptCreateBtJson] inserted behavior_tree_json line at DM line ${insertLine + 1}`);
+    } else {
+      log.appendLine(`[promptCreateBtJson] WARNING: could not find type declaration line for ${typePath} in ${dmUri.fsPath} to insert behavior_tree_json`);
+    }
+
+    // Update the cache so future opens find the jsonPath directly
+    const cached = this._context.workspaceState.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
+    if (cached) {
+      const entry =
+        cached.subtrees.find((s) => s.typePath === typePath) ??
+        cached.controllers.find((c) => c.typePath === typePath);
+      if (entry) {
+        entry.jsonPath = jsonUri.fsPath;
+        await this._context.workspaceState.update(BtEditorPanel._CACHE_SCAN, cached);
+        log.appendLine(`[promptCreateBtJson] cache updated: ${typePath} → ${jsonUri.fsPath}`);
+      }
     }
 
     await this._openJsonFile(jsonUri);
@@ -469,20 +512,45 @@ export class BtEditorPanel {
       }
 
       case "open_subtree": {
+        const log = BtEditorPanel.outputChannel;
+        log.appendLine(
+          `[open_subtree] typePath=${msg.typePath} filePath=${msg.filePath} ` +
+          `jsonPath=${msg.jsonPath ?? "(none)"} newPanel=${msg.newPanel ?? false}`,
+        );
         const cache = this._context.workspaceState.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
-        const jsonPath =
-          msg.jsonPath ??
-          cache?.subtrees.find((r) => r.typePath === msg.typePath)?.jsonPath ??
-          cache?.controllers.find((r) => r.typePath === msg.typePath)?.jsonPath;
 
-        if (msg.newPanel) {
-          const uri = jsonPath ? vscode.Uri.file(jsonPath) : vscode.Uri.file(msg.filePath);
-          BtEditorPanel.createNew(this._context, uri);
-        } else if (jsonPath) {
-          await this._openJsonFile(vscode.Uri.file(jsonPath));
+        // Direct lookup from cache: find the entry for this exact type and use its jsonPath.
+        // This avoids re-scanning the DM file and accidentally opening a different type's json.
+        const cacheEntry =
+          cache?.subtrees.find((r) => r.typePath === msg.typePath) ??
+          cache?.controllers.find((r) => r.typePath === msg.typePath);
+        let jsonPath = msg.jsonPath ?? cacheEntry?.jsonPath;
+        log.appendLine(
+          `[open_subtree] cache entry: ${cacheEntry ? `filePath=${cacheEntry.filePath} jsonPath=${cacheEntry.jsonPath ?? "(none)"}` : "NOT FOUND"}`,
+        );
+
+        // Verify the file still exists before trusting the path
+        if (jsonPath) {
+          try {
+            await vscode.workspace.fs.stat(vscode.Uri.file(jsonPath));
+            log.appendLine(`[open_subtree] jsonPath verified on disk: ${jsonPath}`);
+          } catch {
+            log.appendLine(`[open_subtree] jsonPath no longer on disk (${jsonPath}), will prompt to create`);
+            jsonPath = undefined;
+          }
+        }
+
+        if (!jsonPath) {
+          // No JSON for this type — prompt to create regardless of newPanel flag.
+          const dmFilePath = cacheEntry?.filePath ?? msg.filePath;
+          log.appendLine(`[open_subtree] no JSON for ${msg.typePath}, prompting to create in ${dmFilePath}`);
+          await this._promptCreateBtJson(vscode.Uri.file(dmFilePath), msg.typePath);
+        } else if (msg.newPanel) {
+          log.appendLine(`[open_subtree] opening new panel → ${jsonPath}`);
+          BtEditorPanel.createNew(this._context, vscode.Uri.file(jsonPath));
         } else {
-          // Fallback: non-migrated subtree — open DM in same panel
-          await this._openFile(vscode.Uri.file(msg.filePath), msg.typePath);
+          log.appendLine(`[open_subtree] opening JSON: ${jsonPath}`);
+          await this._openJsonFile(vscode.Uri.file(jsonPath));
         }
         break;
       }
