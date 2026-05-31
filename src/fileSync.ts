@@ -106,6 +106,8 @@ export async function scanAll(): Promise<ScanResult> {
   const allTypes = new Map<string, _RawTypeInfo>();
   const typeFilePaths: Record<string, string> = {};
 
+  // typePath → { relPath, dmFsPath } — resolved to absolute after the loop
+  const rawBtJsonRefs = new Map<string, { relPath: string; dmFsPath: string }>();
   // typePath → resolved absolute path of the .bt.json file
   const btJsonRefs = new Map<string, string>();
 
@@ -119,7 +121,6 @@ export async function scanAll(): Promise<ScanResult> {
     }
 
     const fsPath = uri.fsPath;
-    const dir = path.dirname(fsPath);
     let m: RegExpExecArray | null;
 
     const behaviorRe = /^\/datum\/bt_node\/ai_behavior\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
@@ -149,10 +150,20 @@ export async function scanAll(): Promise<ScanResult> {
       if (!(tp in typeFilePaths)) typeFilePaths[tp] = fsPath;
     }
 
-    // Collect behavior_tree_json references
-    _parseBtJsonRefs(text, dir, btJsonRefs);
-
+    _parseBtJsonRefs(text, rawBtJsonRefs, fsPath);
     _parseTypeVarsFromText(text, allTypes, fsPath, typeFilePaths);
+  }
+
+  // Resolve .bt.json paths — prefer relative to the DM file, fall back to workspace glob
+  for (const [typePath, { relPath, dmFsPath }] of rawBtJsonRefs) {
+    const absPath = path.resolve(path.dirname(dmFsPath), relPath);
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
+      btJsonRefs.set(typePath, absPath);
+      continue;
+    } catch { /* not at DM-relative path — try workspace glob */ }
+    const found = await vscode.workspace.findFiles(relPath.replace(/\\/g, "/"), null, 1);
+    if (found[0]) btJsonRefs.set(typePath, found[0].fsPath);
   }
 
   // Attach jsonPath to subtrees and controllers that have one
@@ -187,7 +198,11 @@ export async function scanAll(): Promise<ScanResult> {
 // behavior_tree_json reference scanner
 // ──────────────────────────────────────────────────────────────────────────────
 
-function _parseBtJsonRefs(text: string, dmDir: string, btJsonRefs: Map<string, string>): void {
+function _parseBtJsonRefs(
+  text: string,
+  btJsonRefs: Map<string, { relPath: string; dmFsPath: string }>,
+  dmFsPath: string,
+): void {
   let currentType: string | null = null;
 
   for (const rawLine of text.split(/\r?\n/)) {
@@ -214,11 +229,8 @@ function _parseBtJsonRefs(text: string, dmDir: string, btJsonRefs: Map<string, s
     // Single-tab behavior_tree_json assignment
     if (rawLine.startsWith("\t") && !rawLine.startsWith("\t\t")) {
       const btM = rawLine.match(/^\t+behavior_tree_json\s*=\s*"([^"]+)"/);
-      if (btM) {
-        const jsonPath = path.resolve(dmDir, btM[1]);
-        if (!btJsonRefs.has(currentType)) {
-          btJsonRefs.set(currentType, jsonPath);
-        }
+      if (btM && !btJsonRefs.has(currentType)) {
+        btJsonRefs.set(currentType, { relPath: btM[1], dmFsPath });
       }
     }
   }

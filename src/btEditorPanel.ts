@@ -207,10 +207,9 @@ export class BtEditorPanel {
       return;
     }
     const dmText = Buffer.from(bytes).toString("utf8");
-    const dmDir = path.dirname(dmUri.fsPath);
 
     // Actually let's do a line-by-line scan to be precise
-    const refs: Array<{ typePath: string; jsonPath: string }> = [];
+    const rawRefs: Array<{ typePath: string; relPath: string }> = [];
     let currentType = "";
     for (const line of dmText.split(/\r?\n/)) {
       if (line.match(/^\/datum\//)) {
@@ -219,13 +218,23 @@ export class BtEditorPanel {
         else currentType = "";
       } else if (currentType && line.match(/^\t+behavior_tree_json\s*=\s*"([^"]+)"/)) {
         const m = line.match(/behavior_tree_json\s*=\s*"([^"]+)"/);
-        if (m) {
-          refs.push({
-            typePath: currentType,
-            jsonPath: path.resolve(dmDir, m[1]),
-          });
-        }
+        if (m) rawRefs.push({ typePath: currentType, relPath: m[1] });
       }
+    }
+
+    const refs: Array<{ typePath: string; jsonPath: string }> = [];
+    for (const { typePath, relPath } of rawRefs) {
+      // Resolve relative to the DM file's directory first (bare filenames live alongside the DM)
+      const absPath = path.resolve(path.dirname(dmUri.fsPath), relPath);
+      let jsonFsPath: string | undefined;
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
+        jsonFsPath = absPath;
+      } catch {
+        const found = await vscode.workspace.findFiles(relPath.replace(/\\/g, "/"), null, 1);
+        if (found[0]) jsonFsPath = found[0].fsPath;
+      }
+      if (jsonFsPath) refs.push({ typePath, jsonPath: jsonFsPath });
     }
 
     if (refs.length === 0) {
