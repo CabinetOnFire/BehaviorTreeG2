@@ -18,7 +18,7 @@ export type BtNode =
       children: BtNode[];
     }
   | { kind: "leaf"; behaviorType: string; args: string[] }
-  | { kind: "subtree"; behaviorType: string }
+  | { kind: "subtree"; behaviorType: string; overrideId?: string }
   | {
       kind: "decorator";
       nodeType: string;

@@ -376,40 +376,6 @@ function BtEditorInner() {
             Go to Source
           </button>
 
-          {/* Deploy dropdown */}
-          <div style={{ position: "relative", display: "inline-flex" }}>
-            <button
-              onClick={() => {
-                if (!activeSub) return;
-                saveAst(state.activeIndex, activeSub.root);
-                postMessage({
-                  type: "deploy_to_dm",
-                  index: state.activeIndex,
-                  root: activeSub.root,
-                });
-              }}
-              style={btnStyle}
-              title="Save JSON + write behavior_nodes = list(...) block into the co-located .dm file"
-            >
-              Deploy to DM
-            </button>
-            <button
-              onClick={() => {
-                if (!activeSub) return;
-                saveAst(state.activeIndex, activeSub.root);
-                postMessage({
-                  type: "deploy_all_to_dm",
-                  activeIndex: state.activeIndex,
-                  activeRoot: activeSub.root,
-                });
-              }}
-              style={{ ...btnStyle, borderLeft: "none", padding: "3px 6px" }}
-              title="Save current file + deploy all .bt.json files in the workspace"
-            >
-              ▾
-            </button>
-          </div>
-
           {state.isDirty && (
             <span style={{ marginLeft: 4, color: "#f0a500", fontSize: 11 }}>● Unsaved changes</span>
           )}

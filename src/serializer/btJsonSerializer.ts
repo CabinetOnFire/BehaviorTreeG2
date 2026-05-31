@@ -72,11 +72,11 @@ function serializeNode(node: BtNode): JsonNode {
         args: node.args.map(stringToJsonScalar),
       };
 
-    case "subtree":
-      return {
-        type: "subtree",
-        subtype: node.behaviorType,
-      };
+    case "subtree": {
+      const out: JsonNode = { type: "subtree", subtype: node.behaviorType };
+      if (node.overrideId !== undefined) out["override_id"] = node.overrideId;
+      return out;
+    }
   }
 }
 
@@ -85,11 +85,13 @@ function serializeNode(node: BtNode): JsonNode {
 // ---------------------------------------------------------------------------
 
 /** Serialize a BtNode AST to the JSON object used in .bt.json files. */
-export function serializeToJsonObject(node: BtNode): JsonNode {
-  return serializeNode(node);
+export function serializeToJsonObject(node: BtNode, dmType?: string): JsonNode {
+  const out = serializeNode(node);
+  if (dmType) return { dm_type: dmType, ...out };
+  return out;
 }
 
 /** Serialize a BtNode AST to a formatted .bt.json string (tab-indented). */
-export function serializeToJsonString(node: BtNode): string {
-  return JSON.stringify(serializeToJsonObject(node), null, "\t") + "\n";
+export function serializeToJsonString(node: BtNode, dmType?: string): string {
+  return JSON.stringify(serializeToJsonObject(node, dmType), null, "\t") + "\n";
 }

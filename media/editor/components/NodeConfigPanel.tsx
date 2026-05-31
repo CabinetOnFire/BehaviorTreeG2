@@ -104,14 +104,25 @@ function SubtreeConfig({
   onUpdate: (n: BtNode) => void;
 }) {
   const [path, setPath] = useState(node.behaviorType);
+  const [overrideId, setOverrideId] = useState(node.overrideId ?? "");
   return (
     <div>
       <FieldLabel>Subtree Path</FieldLabel>
       <input
         value={path}
         onChange={(e) => setPath(e.target.value)}
-        onBlur={() => onUpdate({ ...node, behaviorType: path })}
+        onBlur={() => onUpdate({ ...node, behaviorType: path, overrideId: overrideId || undefined })}
         style={{ ...textAreaStyle, padding: "4px 6px", height: "auto" }}
+      />
+      <FieldLabel>
+        Override ID <HintText>— leave blank for none</HintText>
+      </FieldLabel>
+      <input
+        value={overrideId}
+        onChange={(e) => setOverrideId(e.target.value)}
+        onBlur={() => onUpdate({ ...node, behaviorType: path, overrideId: overrideId.trim() || undefined })}
+        placeholder="e.g. my_override"
+        style={{ ...inputStyle }}
       />
     </div>
   );

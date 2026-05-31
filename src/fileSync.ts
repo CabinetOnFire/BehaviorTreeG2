@@ -2,8 +2,6 @@ import * as vscode from "vscode";
 import * as path from "path";
 import type { BtNode, SubtreeDescriptor } from "../shared/types";
 import { serializeToJsonString } from "./serializer/btJsonSerializer";
-import { generateStandaloneDmFile } from "./serializer/btDmCodegen";
-import { parseJsonFile } from "./parser/btJsonParser";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Write-back: save a mutated AST to its .bt.json file
@@ -25,7 +23,8 @@ export async function writeSubtreeToFile(
   }
 
   const uri = vscode.Uri.file(descriptor.jsonPath);
-  const jsonText = serializeToJsonString(root);
+  const dmType = descriptor.typePath?.startsWith("/") ? descriptor.typePath : undefined;
+  const jsonText = serializeToJsonString(root, dmType);
 
   const edit = new vscode.WorkspaceEdit();
 
@@ -55,160 +54,6 @@ export async function writeSubtreeToFile(
 export async function createEmptyBtJson(uri: vscode.Uri): Promise<void> {
   const content = JSON.stringify({ type: "selector", children: [] }, null, "\t");
   await vscode.workspace.fs.writeFile(uri, Buffer.from(content, "utf-8"));
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Deploy: generate a standalone .dm file with behavior_nodes = list(...)
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Deploy a single .bt.json file's tree to a standalone generated .dm file.
- *
- * The output file is written to the directory configured in
- * `btEditor.outputDirectory` (default: `code/_generated/behavior_trees/`),
- * named after the leaf segment of the datum typePath (e.g. `repairbot_emagged.dm`).
- *
- * Returns a human-readable result message.
- */
-export async function deployJsonToDm(
-  jsonUri: vscode.Uri,
-): Promise<{ success: boolean; message: string }> {
-  // 1. Parse JSON
-  let root: BtNode;
-  try {
-    const bytes = await vscode.workspace.fs.readFile(jsonUri);
-    root = parseJsonFile(Buffer.from(bytes).toString("utf8"));
-  } catch (e) {
-    return { success: false, message: `Failed to parse JSON: ${e}` };
-  }
-
-  const jsonFileName = path.basename(jsonUri.fsPath);
-  const jsonDir = path.dirname(jsonUri.fsPath);
-
-  // 2. Find the co-located .dm file and extract the typePath that references this JSON
-  const dmFiles = await vscode.workspace.findFiles(
-    new vscode.RelativePattern(jsonDir, "*.dm"),
-    "**/node_modules/**",
-  );
-
-  let typePath: string | undefined;
-
-  for (const candidate of dmFiles) {
-    try {
-      const bytes = await vscode.workspace.fs.readFile(candidate);
-      typePath = _extractTypePath(Buffer.from(bytes).toString("utf8"), jsonFileName);
-      if (typePath) break;
-    } catch {
-      continue;
-    }
-  }
-
-  if (!typePath) {
-    return {
-      success: false,
-      message: `No .dm file found referencing "${jsonFileName}" in ${jsonDir}`,
-    };
-  }
-
-  // 3. Resolve output path from config
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders?.length) {
-    return { success: false, message: "No workspace folder open." };
-  }
-  const workspaceRoot = workspaceFolders[0].uri.fsPath;
-  const config = vscode.workspace.getConfiguration("btEditor");
-  const outputDir: string = config.get("outputDirectory") ?? "code/_generated/behavior_trees";
-  const leafName = typePath.split("/").filter(Boolean).pop()!;
-  const outPath = path.join(workspaceRoot, outputDir, `${leafName}.dm`);
-  const outUri = vscode.Uri.file(outPath);
-
-  // 4. Generate and write the standalone .dm file
-  const content = generateStandaloneDmFile(typePath, root);
-  const edit = new vscode.WorkspaceEdit();
-  try {
-    const doc = await vscode.workspace.openTextDocument(outUri);
-    edit.replace(
-      outUri,
-      new vscode.Range(new vscode.Position(0, 0), doc.positionAt(doc.getText().length)),
-      content,
-    );
-  } catch {
-    edit.createFile(outUri, { overwrite: true });
-    edit.insert(outUri, new vscode.Position(0, 0), content);
-  }
-  await vscode.workspace.applyEdit(edit);
-  await (await vscode.workspace.openTextDocument(outUri)).save();
-
-  return {
-    success: true,
-    message: `Deployed "${jsonFileName}" → ${path.relative(workspaceRoot, outPath)}`,
-  };
-}
-
-/**
- * Deploy all .bt.json files in the workspace to their co-located .dm files.
- * Unaccounted files (no matching DM reference) are logged to `log` if provided.
- */
-export async function deployAllJsonToDm(
-  log?: vscode.OutputChannel,
-): Promise<{ success: boolean; message: string }> {
-  const jsonFiles = await vscode.workspace.findFiles("**/*.bt.json", "**/node_modules/**");
-
-  if (jsonFiles.length === 0) {
-    return { success: false, message: "No .bt.json files found in workspace." };
-  }
-
-  const results: string[] = [];
-  let errors = 0;
-
-  for (const uri of jsonFiles) {
-    const r = await deployJsonToDm(uri);
-    results.push((r.success ? "✓" : "✗") + " " + r.message);
-    if (!r.success) {
-      errors++;
-      if (log) {
-        log.appendLine(`[deploy] unaccounted: ${uri.fsPath} — ${r.message}`);
-      }
-    }
-  }
-
-  const summary =
-    errors === 0
-      ? `Deployed ${jsonFiles.length} file(s) successfully.`
-      : `${jsonFiles.length - errors}/${jsonFiles.length} deployed; ${errors} error(s).`;
-
-  return {
-    success: errors === 0,
-    message: summary + "\n" + results.join("\n"),
-  };
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Deploy helpers
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Scan DM source text for a datum that declares `behavior_tree_json = "jsonFileName"`.
- * Returns the typePath of that datum, or undefined if not found.
- */
-function _extractTypePath(dmText: string, jsonFileName: string): string | undefined {
-  let currentType: string | undefined;
-  for (const line of dmText.split(/\r?\n/)) {
-    if (line.startsWith("/datum/")) {
-      const m = line.match(/^(\/datum\/(?:[\w]+\/)*[\w]+)\s*(?:\/\/.*)?$/);
-      currentType = m ? m[1] : undefined;
-      continue;
-    }
-    if (line.trim() && !line.startsWith("\t") && !line.startsWith("//") && !line.startsWith("#")) {
-      currentType = undefined;
-      continue;
-    }
-    if (currentType) {
-      const m = line.match(/behavior_tree_json\s*=\s*"([^"]+)"/);
-      if (m && path.basename(m[1]) === jsonFileName) return currentType;
-    }
-  }
-  return undefined;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

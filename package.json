@@ -2,7 +2,7 @@
   "name": "behaviortreeg",
   "displayName": "BehaviorTreeG",
   "description": "Visual behavior tree editor for tgstation's implementation of behavior trees",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "icon": "media/bt-editor-logo.png",
   "license": "GPL-3.0",
   "publisher": "behaviortreeg",
@@ -49,11 +49,6 @@
         "command": "bt-editor.refresh-browser",
         "title": "Refresh Behavior Tree Browser",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "bt-editor.deploy-all",
-        "title": "Deploy all BT JSONs to DM",
-        "icon": "$(cloud-upload)"
       }
     ],
     "viewsContainers": {
@@ -89,26 +84,11 @@
         "contents": "No behavior trees found in workspace.\n[Scan Workspace](command:bt-editor.refresh-browser)"
       }
     ],
-    "configuration": {
-      "title": "BT Editor",
-      "properties": {
-        "btEditor.outputDirectory": {
-          "type": "string",
-          "default": "code/_generated/behavior_trees",
-          "description": "Workspace-relative path where generated .dm files are written during deploy. Example: \"code/_generated/behavior_trees\""
-        }
-      }
-    },
     "menus": {
       "editor/title": [
         {
           "command": "bt-editor.open",
           "when": "resourceLangId == dm || resourceExtname == .bt.json",
-          "group": "navigation"
-        },
-        {
-          "command": "bt-editor.deploy-all",
-          "when": "resourceExtname == .bt.json",
           "group": "navigation"
         }
       ],

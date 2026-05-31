@@ -171,6 +171,9 @@ function codegenNode(node: BtNode, depth: number): string {
     }
 
     case "subtree":
+      if (node.overrideId !== undefined) {
+        return `list("__t" = ${node.behaviorType}, "override_id" = ${emitValue(node.overrideId)})`;
+      }
       return node.behaviorType;
   }
 }

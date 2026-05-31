@@ -84,11 +84,14 @@ function parseNode(obj: JsonObj): BtNode {
       };
     }
 
-    case "subtree":
-      return {
+    case "subtree": {
+      const subtree: Extract<BtNode, { kind: "subtree" }> = {
         kind: "subtree",
         behaviorType: String(obj["subtype"] ?? ""),
       };
+      if (obj["override_id"] != null) subtree.overrideId = String(obj["override_id"]);
+      return subtree;
+    }
 
     default:
       throw new Error(`Unknown BT JSON node type: "${type}"`);
@@ -99,8 +102,10 @@ function parseNode(obj: JsonObj): BtNode {
 // Public API
 // ---------------------------------------------------------------------------
 
-/** Parse a .bt.json file's text content into a BtNode AST. */
-export function parseJsonFile(jsonText: string): BtNode {
+/** Parse a .bt.json file's text content into a BtNode AST plus optional metadata. */
+export function parseJsonFile(jsonText: string): { root: BtNode; dmType?: string } {
   const obj = JSON.parse(jsonText) as JsonObj;
-  return parseNode(obj);
+  const root = parseNode(obj);
+  const dmType = typeof obj["dm_type"] === "string" && obj["dm_type"] ? (obj["dm_type"] as string) : undefined;
+  return { root, dmType };
 }

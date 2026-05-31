@@ -68,6 +68,22 @@ export function SubtreeNode({ data, selected }: NodeProps) {
         >
           {lastSegment}
         </div>
+        {bt.overrideId && (
+          <div
+            style={{
+              color: "#e0e0e0",
+              fontSize: 10,
+              opacity: 0.6,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontFamily: "monospace",
+            }}
+            title={`override_id: ${bt.overrideId}`}
+          >
+            id: {bt.overrideId}
+          </div>
+        )}
       </div>
     </div>
   );

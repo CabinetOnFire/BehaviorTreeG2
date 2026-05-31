@@ -76,7 +76,7 @@ export class BtBrowserProvider implements vscode.TreeDataProvider<BtTreeItem> {
         empty.description = "";
         return [empty];
       }
-      return refs.map((ref) => this._makeLeafItem(ref));
+      return refs.map((ref) => this._makeLeafItem(ref, element.category === "controllers"));
     }
 
     return [];
@@ -94,19 +94,26 @@ export class BtBrowserProvider implements vscode.TreeDataProvider<BtTreeItem> {
     return item;
   }
 
-  private _makeLeafItem(ref: Ref): BtTreeItem {
+  private _makeLeafItem(ref: Ref, isController = false): BtTreeItem {
     const segments = ref.typePath.split("/").filter(Boolean);
     const label = segments.pop() ?? ref.typePath;
     const item = new BtTreeItem(label, vscode.TreeItemCollapsibleState.None, "entry");
     item.description = ref.typePath;
-    item.tooltip = ref.typePath;
+    item.tooltip = isController && !ref.jsonPath
+      ? `${ref.typePath}\n⚠ No behavior_tree_json found`
+      : ref.typePath;
     item.contextValue = "btEntry";
 
-    const fileToOpen = ref.jsonPath ?? ref.filePath;
+    if (isController && !ref.jsonPath) {
+      item.iconPath = new vscode.ThemeIcon("error", new vscode.ThemeColor("errorForeground"));
+    }
+
     item.command = {
       command: "bt-editor.open-json",
       title: "Open",
-      arguments: [vscode.Uri.file(fileToOpen)],
+      arguments: ref.jsonPath
+        ? [vscode.Uri.file(ref.jsonPath)]
+        : [vscode.Uri.file(ref.filePath), ref.typePath],
     };
     return item;
   }

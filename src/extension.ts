@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { BtEditorPanel, BtEditorProvider } from "./btEditorPanel";
-import { deployAllJsonToDm } from "./fileSync";
 import { BtBrowserProvider } from "./btBrowserProvider";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -40,21 +39,12 @@ export function activate(context: vscode.ExtensionContext) {
       BtEditorPanel.createOrShow(context, uri);
     }),
 
-    vscode.commands.registerCommand("bt-editor.open-json", (uri: vscode.Uri) => {
-      BtEditorPanel.createOrShow(context, uri);
+    vscode.commands.registerCommand("bt-editor.open-json", (uri: vscode.Uri, typePath?: string) => {
+      BtEditorPanel.createOrShow(context, uri, typePath);
     }),
 
     vscode.commands.registerCommand("bt-editor.refresh-browser", async () => {
       await browserProvider.doScan(BtEditorPanel.onScanComplete);
-    }),
-
-    vscode.commands.registerCommand("bt-editor.deploy-all", async () => {
-      const result = await deployAllJsonToDm(BtEditorPanel.outputChannel);
-      if (result.success) {
-        vscode.window.showInformationMessage(`BT Editor: ${result.message}`);
-      } else {
-        vscode.window.showWarningMessage(`BT Editor: ${result.message}`);
-      }
     }),
 
     openView,
