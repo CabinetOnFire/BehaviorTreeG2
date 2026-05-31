@@ -183,6 +183,9 @@ export function useBtEditor() {
         case "subtrees_loaded":
           setState((s) => ({ ...s, subtreeRefs: msg.subtrees, controllerRefs: msg.controllers }));
           break;
+        case "clipboard_update":
+          setState((s) => ({ ...s, clipboard: msg.nodes }));
+          break;
       }
     },
     [rebuildLayout],
@@ -311,10 +314,12 @@ export function useBtEditor() {
         const pn = s.nodes.filter((n) => n.id.startsWith("pending-"));
         const pe = s.edges.filter((e) => e.id.startsWith("pending-"));
         const { nodes: treeNodes2, edges: treeEdges } = buildLayout(newRoot, true);
+        const prevSelected = new Set(s.nodes.filter((n) => n.selected).map((n) => n.id));
+        const restoredNodes = treeNodes2.map((n) => prevSelected.has(n.id) ? { ...n, selected: true } : n);
         return {
           ...s,
           subtrees: newSubtrees,
-          nodes: [...treeNodes2, ...pn],
+          nodes: [...restoredNodes, ...pn],
           edges: [...treeEdges, ...pe],
           isDirty: true,
           past: [...s.past, snapshot(s)].slice(-50),
@@ -757,9 +762,10 @@ export function useBtEditor() {
         if (node) items.push(node.data._btNode as BtNode);
       }
       if (items.length === 0) return s;
+      postMessage({ type: "copy_nodes", nodes: items });
       return { ...s, clipboard: items };
     });
-  }, []);
+  }, [postMessage]);
 
   const replaceRoot = useCallback(
     (newNode: BtNode) => {

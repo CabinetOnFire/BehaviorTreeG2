@@ -10,7 +10,8 @@ export type ExtMsg =
       subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string }>;
       controllers: Array<{ typePath: string; filePath: string; jsonPath?: string }>;
     }
-  | { type: "type_vars_loaded"; typeVars: Record<string, Array<{ name: string; defaultValue: string }>> };
+  | { type: "type_vars_loaded"; typeVars: Record<string, Array<{ name: string; defaultValue: string }>> }
+  | { type: "clipboard_update"; nodes: BtNode[] };
 
 /** Messages sent from the webview to the extension host */
 export type WebMsg =
@@ -23,4 +24,5 @@ export type WebMsg =
   | { type: "open_subtree"; typePath: string; filePath: string; jsonPath?: string; newPanel?: boolean }
   | { type: "reveal_type"; typePath: string }
   | { type: "refresh_types" }
-  | { type: "set_dirty"; dirty: boolean };
+  | { type: "set_dirty"; dirty: boolean }
+  | { type: "copy_nodes"; nodes: BtNode[] };

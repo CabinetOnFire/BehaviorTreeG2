@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import type { ExtMsg, WebMsg } from "../shared/messaging";
-import type { SubtreeDescriptor } from "../shared/types";
+import type { BtNode, SubtreeDescriptor } from "../shared/types";
 import { parseJsonFile } from "./parser/btJsonParser";
 import { writeSubtreeToFile, createEmptyBtJson, scanAll } from "./fileSync";
 import type { ScanResult } from "./fileSync";
@@ -21,6 +21,9 @@ export class BtEditorPanel {
 
   /** Called after every successful workspace scan so the sidebar browser can refresh. */
   static onScanComplete: ((result: ScanResult) => void) | undefined;
+
+  private static _allPanels: Set<BtEditorPanel> = new Set();
+  private static _sharedClipboard: BtNode[] = [];
 
   private readonly _panel: vscode.WebviewPanel;
   private readonly _context: vscode.ExtensionContext;
@@ -79,6 +82,7 @@ export class BtEditorPanel {
   ) {
     this._panel = panel;
     this._context = context;
+    BtEditorPanel._allPanels.add(this);
 
     this._panel.webview.html = this._buildHtml();
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
@@ -451,6 +455,9 @@ export class BtEditorPanel {
         this._autoScan().catch((e) =>
           BtEditorPanel.outputChannel.appendLine(`[autoScan] unhandled: ${e}`),
         );
+        if (BtEditorPanel._sharedClipboard.length > 0) {
+          this._post({ type: "clipboard_update", nodes: BtEditorPanel._sharedClipboard });
+        }
         break;
 
       case "select_subtree":
@@ -600,6 +607,15 @@ export class BtEditorPanel {
       case "set_dirty":
         this._isDirtyMirror = msg.dirty;
         break;
+
+      case "copy_nodes":
+        BtEditorPanel._sharedClipboard = msg.nodes;
+        for (const panel of BtEditorPanel._allPanels) {
+          if (panel !== this) {
+            panel._post({ type: "clipboard_update", nodes: msg.nodes });
+          }
+        }
+        break;
     }
   }
 
@@ -642,6 +658,7 @@ export class BtEditorPanel {
     if (this === BtEditorPanel.currentPanel) {
       BtEditorPanel.currentPanel = undefined;
     }
+    BtEditorPanel._allPanels.delete(this);
     this._panel.dispose();
     while (this._disposables.length) {
       this._disposables.pop()?.dispose();
