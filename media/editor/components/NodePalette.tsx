@@ -6,8 +6,8 @@ interface NodePaletteProps {
   postMessage: (msg: WebMsg) => void;
   behaviors: string[] | null;
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
-  subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string }> | null;
-  controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string }> | null;
+  subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
+  controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   onOpen: (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean) => void;
   onRevealType: (typePath: string) => void;
 }
@@ -228,7 +228,8 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
                   <BrowserItem
                     key={c.typePath}
                     typePath={c.typePath}
-                    color={c.jsonPath ? "#F06292" : "#F44336"}
+                    color={c.inherited ? "#FFB74D" : c.jsonPath ? "#F06292" : "#F44336"}
+                    inherited={c.inherited}
                     onClick={() => onOpen(c.typePath, c.filePath, c.jsonPath, true)}
                     onDoubleClick={() => onRevealType(c.typePath)}
                   />
@@ -358,6 +359,7 @@ function BrowserGroupLabel({ label }: { label: string }) {
 function BrowserItem({
   typePath,
   color,
+  inherited,
   onClick,
   onDoubleClick,
   draggable,
@@ -365,6 +367,7 @@ function BrowserItem({
 }: {
   typePath: string;
   color: string;
+  inherited?: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
   draggable?: boolean;
@@ -376,7 +379,7 @@ function BrowserItem({
       onDragStart={onDragStart}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      title={typePath}
+      title={inherited ? `${typePath}\n(inherits tree from parent)` : typePath}
       style={{
         padding: "3px 6px",
         marginBottom: 2,
@@ -390,9 +393,13 @@ function BrowserItem({
         textOverflow: "ellipsis",
         whiteSpace: "nowrap" as const,
         userSelect: "none" as const,
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
       }}
     >
-      {shortTypePath(typePath)}
+      {inherited && <span style={{ opacity: 0.7, flexShrink: 0 }}>↑</span>}
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{shortTypePath(typePath)}</span>
     </div>
   );
 }

@@ -63,8 +63,8 @@ export async function createEmptyBtJson(uri: vscode.Uri): Promise<void> {
 
 export interface ScanResult {
   behaviors: string[];
-  subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
-  controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
+  subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }>;
+  controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }>;
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>>;
   /** Maps every scanned typePath to the file where it was first declared. */
   typeFilePaths: Record<string, string>;
@@ -92,18 +92,24 @@ interface _RawTypeInfo {
   performParams: Array<{ name: string; defaultValue: string }> | null;
 }
 
-/**
- * Single-pass scan of all .dm files: collects behaviors, subtrees, controllers,
- * type variables, and behavior_tree_json references.
- */
-export async function scanAll(): Promise<ScanResult> {
+// Only one scan may run at a time; callers that arrive while one is in-flight
+// get the same promise instead of spawning a second scan.
+let _activeScan: Promise<ScanResult> | null = null;
+
+export function scanAll(): Promise<ScanResult> {
+  if (_activeScan) return _activeScan;
+  _activeScan = _doScanAll().finally(() => { _activeScan = null; });
+  return _activeScan;
+}
+
+async function _doScanAll(): Promise<ScanResult> {
   const files = await vscode.workspace.findFiles("**/*.dm", "**/node_modules/**");
 
   const behaviorSet = new Set<string>();
   const seenSubtrees = new Set<string>();
   const seenControllers = new Set<string>();
-  const subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }> = [];
-  const controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }> = [];
+  const subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }> = [];
+  const controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }> = [];
   const allTypes = new Map<string, _RawTypeInfo>();
   const typeFilePaths: Record<string, string> = {};
 
@@ -112,16 +118,22 @@ export async function scanAll(): Promise<ScanResult> {
   // typePath → resolved absolute path of the .bt.json file
   const btJsonRefs = new Map<string, string>();
 
-  for (const uri of files) {
-    let text: string;
-    try {
-      const bytes = await vscode.workspace.fs.readFile(uri);
-      text = Buffer.from(bytes).toString("utf8");
-    } catch {
-      continue;
-    }
+  // 1. Read all .dm files in parallel
+  const fileTexts = await Promise.all(
+    files.map(async (uri) => {
+      try {
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        return { fsPath: uri.fsPath, text: Buffer.from(bytes).toString("utf8") };
+      } catch {
+        return null;
+      }
+    }),
+  );
 
-    const fsPath = uri.fsPath;
+  // 2. Parse all files (pure CPU — no I/O)
+  for (const entry of fileTexts) {
+    if (!entry) continue;
+    const { fsPath, text } = entry;
     let m: RegExpExecArray | null;
 
     const behaviorRe = /^\/datum\/bt_node\/ai_behavior\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
@@ -155,33 +167,53 @@ export async function scanAll(): Promise<ScanResult> {
     _parseTypeVarsFromText(text, allTypes, fsPath, typeFilePaths);
   }
 
-  // Resolve .bt.json paths — prefer relative to the DM file, fall back to workspace glob
-  for (const [typePath, { relPath, dmFsPath }] of rawBtJsonRefs) {
-    const absPath = path.resolve(path.dirname(dmFsPath), relPath);
-    try {
-      await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
-      btJsonRefs.set(typePath, absPath);
-      continue;
-    } catch { /* not at DM-relative path — try workspace glob */ }
-    const found = await vscode.workspace.findFiles(relPath.replace(/\\/g, "/"), null, 1);
-    if (found[0]) btJsonRefs.set(typePath, found[0].fsPath);
-  }
+  // 3. Resolve .bt.json paths in parallel — prefer DM-relative, fall back to workspace glob
+  await Promise.all(
+    [...rawBtJsonRefs.entries()].map(async ([typePath, { relPath, dmFsPath }]) => {
+      const absPath = path.resolve(path.dirname(dmFsPath), relPath);
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
+        btJsonRefs.set(typePath, absPath);
+        return;
+      } catch { /* not at DM-relative path — try workspace glob */ }
+      const found = await vscode.workspace.findFiles(relPath.replace(/\\/g, "/"), null, 1);
+      if (found[0]) btJsonRefs.set(typePath, found[0].fsPath);
+    }),
+  );
 
-  // Attach jsonPath (and binding declarations) to subtrees and controllers that have one
-  for (const s of subtrees) {
-    const jp = btJsonRefs.get(s.typePath);
-    if (jp) {
-      s.jsonPath = jp;
-      s.bindings = await _readBtJsonBindings(jp);
-    }
-  }
-  for (const c of controllers) {
-    const jp = btJsonRefs.get(c.typePath);
-    if (jp) {
-      c.jsonPath = jp;
-      c.bindings = await _readBtJsonBindings(jp);
-    }
-  }
+  // 4. Attach jsonPath + bindings in parallel (direct hit or ancestor inheritance).
+  //    Binding reads are deduplicated: the same .bt.json is only read once even if
+  //    many subtypes inherit from the same parent.
+  const bindingCache = new Map<string, Promise<BtBindingDeclarations | undefined>>();
+  const cachedBindings = (jp: string) => {
+    if (!bindingCache.has(jp)) bindingCache.set(jp, _readBtJsonBindings(jp));
+    return bindingCache.get(jp)!;
+  };
+
+  await Promise.all(
+    [...subtrees, ...controllers].map(async (entry) => {
+      const jp = btJsonRefs.get(entry.typePath);
+      if (jp) {
+        entry.jsonPath = jp;
+        entry.bindings = await cachedBindings(jp);
+        return;
+      }
+      // Walk up the DM path hierarchy to find an inherited tree
+      let cur = entry.typePath;
+      for (;;) {
+        const segs = cur.split("/").filter(Boolean);
+        if (segs.length <= 1) break;
+        cur = "/" + segs.slice(0, -1).join("/");
+        const inheritedJp = btJsonRefs.get(cur);
+        if (inheritedJp) {
+          entry.jsonPath = inheritedJp;
+          entry.inherited = true;
+          entry.bindings = await cachedBindings(inheritedJp);
+          break;
+        }
+      }
+    }),
+  );
 
   const typeVars: Record<string, Array<{ name: string; defaultValue: string }>> = {};
   for (const [typePath] of allTypes) {

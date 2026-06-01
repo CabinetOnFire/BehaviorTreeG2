@@ -7,8 +7,8 @@ export type ExtMsg =
   | { type: "behaviors_loaded"; behaviors: string[] }
   | {
       type: "subtrees_loaded";
-      subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
-      controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
+      subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }>;
+      controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }>;
     }
   | { type: "type_vars_loaded"; typeVars: Record<string, Array<{ name: string; defaultValue: string }>> }
   | { type: "clipboard_update"; nodes: BtNode[] };

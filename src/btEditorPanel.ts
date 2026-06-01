@@ -512,17 +512,14 @@ export class BtEditorPanel {
         break;
       }
 
-      case "load_behaviors": {
-        const r = await scanAll();
-        this._post({ type: "behaviors_loaded", behaviors: r.behaviors });
+      case "load_behaviors":
+      case "load_subtrees":
+        // Route through _autoScan so these share the cache and coalesce with any
+        // in-flight scan rather than launching independent ones.
+        this._autoScan().catch((e) =>
+          BtEditorPanel.outputChannel.appendLine(`[autoScan] unhandled: ${e}`),
+        );
         break;
-      }
-
-      case "load_subtrees": {
-        const r = await scanAll();
-        this._post({ type: "subtrees_loaded", subtrees: r.subtrees, controllers: r.controllers });
-        break;
-      }
 
       case "open_subtree": {
         const log = BtEditorPanel.outputChannel;

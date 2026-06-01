@@ -38,8 +38,8 @@ export interface BtEditorState {
   layoutVersion: number;
   behaviors: string[] | null;
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
-  subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string }> | null;
-  controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string }> | null;
+  subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
+  controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   /** Binding declarations keyed by typePath, populated from subtrees_loaded. */
   subtreeBindings: Record<string, BtBindingDeclarations>;
   past: HistoryEntry[];
