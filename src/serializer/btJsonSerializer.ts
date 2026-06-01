@@ -1,4 +1,4 @@
-import type { BtNode } from "../../shared/types";
+import type { BtBindingDeclarations, BtNode } from "../../shared/types";
 import { COMPOSITE_SCHEMAS } from "../../shared/compositeSchema";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +75,7 @@ function serializeNode(node: BtNode): JsonNode {
     case "subtree": {
       const out: JsonNode = { type: "subtree", subtype: node.behaviorType };
       if (node.overrideId !== undefined) out["override_id"] = node.overrideId;
+      if (node.bindings && Object.keys(node.bindings).length > 0) out["bindings"] = node.bindings;
       return out;
     }
   }
@@ -85,13 +86,15 @@ function serializeNode(node: BtNode): JsonNode {
 // ---------------------------------------------------------------------------
 
 /** Serialize a BtNode AST to the JSON object used in .bt.json files. */
-export function serializeToJsonObject(node: BtNode, dmType?: string): JsonNode {
+export function serializeToJsonObject(node: BtNode, dmType?: string, bindings?: BtBindingDeclarations): JsonNode {
   const out = serializeNode(node);
-  if (dmType) return { dm_type: dmType, ...out };
-  return out;
+  const prefix: JsonNode = {};
+  if (dmType) prefix["dm_type"] = dmType;
+  if (bindings && Object.keys(bindings).length > 0) prefix["bindings"] = bindings;
+  return { ...prefix, ...out };
 }
 
 /** Serialize a BtNode AST to a formatted .bt.json string (tab-indented). */
-export function serializeToJsonString(node: BtNode, dmType?: string): string {
-  return JSON.stringify(serializeToJsonObject(node, dmType), null, "\t") + "\n";
+export function serializeToJsonString(node: BtNode, dmType?: string, bindings?: BtBindingDeclarations): string {
+  return JSON.stringify(serializeToJsonObject(node, dmType, bindings), null, "\t") + "\n";
 }

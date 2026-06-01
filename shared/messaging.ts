@@ -1,4 +1,4 @@
-import type { BtNode, SubtreeDescriptor } from "./types";
+import type { BtBindingDeclarations, BtNode, SubtreeDescriptor } from "./types";
 
 /** Messages sent from the extension host to the webview */
 export type ExtMsg =
@@ -7,8 +7,8 @@ export type ExtMsg =
   | { type: "behaviors_loaded"; behaviors: string[] }
   | {
       type: "subtrees_loaded";
-      subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string }>;
-      controllers: Array<{ typePath: string; filePath: string; jsonPath?: string }>;
+      subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
+      controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
     }
   | { type: "type_vars_loaded"; typeVars: Record<string, Array<{ name: string; defaultValue: string }>> }
   | { type: "clipboard_update"; nodes: BtNode[] };
@@ -17,7 +17,7 @@ export type ExtMsg =
 export type WebMsg =
   | { type: "ready" }
   | { type: "select_subtree"; index: number }
-  | { type: "save_ast"; index: number; root: BtNode }
+  | { type: "save_ast"; index: number; root: BtNode; bindings?: BtBindingDeclarations }
   | { type: "reveal_in_file"; index: number }
   | { type: "load_behaviors" }
   | { type: "load_subtrees" }

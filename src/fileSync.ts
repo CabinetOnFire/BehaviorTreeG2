@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import type { BtNode, SubtreeDescriptor } from "../shared/types";
+import type { BtBindingDeclarations, BtNode, SubtreeDescriptor } from "../shared/types";
 import { serializeToJsonString } from "./serializer/btJsonSerializer";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -14,6 +14,7 @@ import { serializeToJsonString } from "./serializer/btJsonSerializer";
 export async function writeSubtreeToFile(
   descriptor: SubtreeDescriptor,
   root: BtNode,
+  bindings?: BtBindingDeclarations,
 ): Promise<void> {
   if (!descriptor.jsonPath) {
     vscode.window.showErrorMessage(
@@ -24,7 +25,7 @@ export async function writeSubtreeToFile(
 
   const uri = vscode.Uri.file(descriptor.jsonPath);
   const dmType = descriptor.typePath?.startsWith("/") ? descriptor.typePath : undefined;
-  const jsonText = serializeToJsonString(root, dmType);
+  const jsonText = serializeToJsonString(root, dmType, bindings);
 
   const edit = new vscode.WorkspaceEdit();
 
@@ -62,8 +63,8 @@ export async function createEmptyBtJson(uri: vscode.Uri): Promise<void> {
 
 export interface ScanResult {
   behaviors: string[];
-  subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string }>;
-  controllers: Array<{ typePath: string; filePath: string; jsonPath?: string }>;
+  subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
+  controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }>;
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>>;
   /** Maps every scanned typePath to the file where it was first declared. */
   typeFilePaths: Record<string, string>;
@@ -101,8 +102,8 @@ export async function scanAll(): Promise<ScanResult> {
   const behaviorSet = new Set<string>();
   const seenSubtrees = new Set<string>();
   const seenControllers = new Set<string>();
-  const subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string }> = [];
-  const controllers: Array<{ typePath: string; filePath: string; jsonPath?: string }> = [];
+  const subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }> = [];
+  const controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; bindings?: BtBindingDeclarations }> = [];
   const allTypes = new Map<string, _RawTypeInfo>();
   const typeFilePaths: Record<string, string> = {};
 
@@ -166,14 +167,20 @@ export async function scanAll(): Promise<ScanResult> {
     if (found[0]) btJsonRefs.set(typePath, found[0].fsPath);
   }
 
-  // Attach jsonPath to subtrees and controllers that have one
+  // Attach jsonPath (and binding declarations) to subtrees and controllers that have one
   for (const s of subtrees) {
     const jp = btJsonRefs.get(s.typePath);
-    if (jp) s.jsonPath = jp;
+    if (jp) {
+      s.jsonPath = jp;
+      s.bindings = await _readBtJsonBindings(jp);
+    }
   }
   for (const c of controllers) {
     const jp = btJsonRefs.get(c.typePath);
-    if (jp) c.jsonPath = jp;
+    if (jp) {
+      c.jsonPath = jp;
+      c.bindings = await _readBtJsonBindings(jp);
+    }
   }
 
   const typeVars: Record<string, Array<{ name: string; defaultValue: string }>> = {};
@@ -192,6 +199,32 @@ export async function scanAll(): Promise<ScanResult> {
     typeVars,
     typeFilePaths,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// .bt.json binding declarations reader
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function _readBtJsonBindings(jsonPath: string): Promise<BtBindingDeclarations | undefined> {
+  try {
+    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(jsonPath));
+    const obj = JSON.parse(Buffer.from(bytes).toString("utf8"));
+    const raw = obj["bindings"];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const result: BtBindingDeclarations = {};
+    for (const [name, entry] of Object.entries(raw)) {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        const e = entry as Record<string, unknown>;
+        result[name] = {
+          label: typeof e["label"] === "string" ? e["label"] : name,
+          default: e["default"] !== undefined ? String(e["default"]) : "",
+        };
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

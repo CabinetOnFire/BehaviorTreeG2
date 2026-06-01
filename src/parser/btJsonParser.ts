@@ -1,4 +1,4 @@
-import type { BtNode } from "../../shared/types";
+import type { BtBindingDeclarations, BtNode } from "../../shared/types";
 import { COMPOSITE_SCHEMAS } from "../../shared/compositeSchema";
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,12 @@ function parseNode(obj: JsonObj): BtNode {
         behaviorType: String(obj["subtype"] ?? ""),
       };
       if (obj["override_id"] != null) subtree.overrideId = String(obj["override_id"]);
+      if (obj["bindings"] != null && typeof obj["bindings"] === "object" && !Array.isArray(obj["bindings"])) {
+        const raw = obj["bindings"] as Record<string, JsonVal>;
+        const bindings: Record<string, string> = {};
+        for (const [k, v] of Object.entries(raw)) bindings[k] = String(v);
+        if (Object.keys(bindings).length > 0) subtree.bindings = bindings;
+      }
       return subtree;
     }
 
@@ -103,9 +109,27 @@ function parseNode(obj: JsonObj): BtNode {
 // ---------------------------------------------------------------------------
 
 /** Parse a .bt.json file's text content into a BtNode AST plus optional metadata. */
-export function parseJsonFile(jsonText: string): { root: BtNode; dmType?: string } {
+export function parseJsonFile(jsonText: string): { root: BtNode; dmType?: string; bindings?: BtBindingDeclarations } {
   const obj = JSON.parse(jsonText) as JsonObj;
   const root = parseNode(obj);
   const dmType = typeof obj["dm_type"] === "string" && obj["dm_type"] ? (obj["dm_type"] as string) : undefined;
-  return { root, dmType };
+  const bindings = _parseBindingDeclarations(obj);
+  return { root, dmType, ...(bindings ? { bindings } : {}) };
+}
+
+function _parseBindingDeclarations(obj: JsonObj): BtBindingDeclarations | undefined {
+  const raw = obj["bindings"];
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const decls = raw as Record<string, JsonVal>;
+  const result: BtBindingDeclarations = {};
+  for (const [name, entry] of Object.entries(decls)) {
+    if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+      const e = entry as Record<string, JsonVal>;
+      result[name] = {
+        label: typeof e["label"] === "string" ? e["label"] : name,
+        default: typeof e["default"] !== "undefined" ? String(e["default"]) : "",
+      };
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }

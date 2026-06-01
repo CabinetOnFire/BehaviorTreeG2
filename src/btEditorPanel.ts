@@ -107,8 +107,8 @@ export class BtEditorPanel {
           }
 
           try {
-            const { root } = parseJsonFile(e.document.getText());
-            const updated: SubtreeDescriptor = { ...this._subtrees[changedIndex], root };
+            const { root, bindings } = parseJsonFile(e.document.getText());
+            const updated: SubtreeDescriptor = { ...this._subtrees[changedIndex], root, bindings };
             this._subtrees = this._subtrees.map((s, i) => (i === changedIndex ? updated : s));
             this._post({
               type: "file_changed",
@@ -155,8 +155,9 @@ export class BtEditorPanel {
 
     let root;
     let parsedDmType: string | undefined;
+    let parsedBindings: SubtreeDescriptor["bindings"];
     try {
-      ({ root, dmType: parsedDmType } = parseJsonFile(Buffer.from(bytes).toString("utf8")));
+      ({ root, dmType: parsedDmType, bindings: parsedBindings } = parseJsonFile(Buffer.from(bytes).toString("utf8")));
     } catch (e) {
       vscode.window.showErrorMessage(
         `BT Editor: JSON parse error in ${path.basename(uri.fsPath)}: ${e}`,
@@ -178,6 +179,7 @@ export class BtEditorPanel {
       jsonPath: uri.fsPath,
       dmPath,
       root,
+      ...(parsedBindings ? { bindings: parsedBindings } : {}),
     };
 
     // Migrate: if the file lacks dm_type but we resolved a real type path, write it now.
@@ -305,12 +307,13 @@ export class BtEditorPanel {
 
       try {
         const jBytes = await vscode.workspace.fs.readFile(jsonUri);
-        const { root, dmType } = parseJsonFile(Buffer.from(jBytes).toString("utf8"));
+        const { root, dmType, bindings } = parseJsonFile(Buffer.from(jBytes).toString("utf8"));
         const descriptor: SubtreeDescriptor = {
           typePath: ref.typePath,
           jsonPath: ref.jsonPath,
           dmPath: dmUri.fsPath,
           root,
+          ...(bindings ? { bindings } : {}),
         };
         if (!dmType) writeSubtreeToFile(descriptor, root).catch(() => undefined);
         subtrees.push(descriptor);
@@ -471,7 +474,10 @@ export class BtEditorPanel {
       case "save_ast": {
         const descriptor = this._subtrees[msg.index];
         if (!descriptor) return;
-        await writeSubtreeToFile(descriptor, msg.root);
+        if (msg.bindings !== undefined) {
+          this._subtrees[msg.index] = { ...descriptor, bindings: msg.bindings };
+        }
+        await writeSubtreeToFile(this._subtrees[msg.index], msg.root, msg.bindings);
         this._isDirtyMirror = false;
         break;
       }

@@ -84,6 +84,19 @@ export function SubtreeNode({ data, selected }: NodeProps) {
             id: {bt.overrideId}
           </div>
         )}
+        {bt.bindings && Object.keys(bt.bindings).length > 0 && (
+          <div
+            style={{
+              color: accent,
+              fontSize: 10,
+              opacity: 0.7,
+              fontFamily: "monospace",
+            }}
+            title={Object.entries(bt.bindings).map(([k, v]) => `${k}: ${v}`).join("\n")}
+          >
+            {Object.keys(bt.bindings).length} override{Object.keys(bt.bindings).length !== 1 ? "s" : ""}
+          </div>
+        )}
       </div>
     </div>
   );

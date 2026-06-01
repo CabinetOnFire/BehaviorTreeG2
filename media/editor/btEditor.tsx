@@ -54,6 +54,8 @@ function BtEditorInner() {
     revealInFile,
     revealType,
     updateNode,
+    updateNodeAndBindings,
+    renameBinding,
     clearSelection,
     relayout,
     onNodesChange,
@@ -478,8 +480,12 @@ function BtEditorInner() {
               <NodeConfigPanel
                 node={{ ...selectedBtNode, id: selectedNode.id }}
                 onUpdate={(updated) => updateNode(selectedNode.id, updated)}
+                onUpdateWithBindings={(updated, bindings) => updateNodeAndBindings(selectedNode.id, updated, bindings)}
+                onRenameBinding={renameBinding}
                 onClose={() => clearSelection()}
                 typeVars={state.typeVars}
+                activeSubtreeBindings={state.subtrees[state.activeIndex]?.bindings}
+                subtreeBindings={state.subtreeBindings}
               />
             )}
           </div>

@@ -18,7 +18,7 @@ export type BtNode =
       children: BtNode[];
     }
   | { kind: "leaf"; behaviorType: string; args: string[] }
-  | { kind: "subtree"; behaviorType: string; overrideId?: string }
+  | { kind: "subtree"; behaviorType: string; overrideId?: string; bindings?: Record<string, string> }
   | {
       kind: "decorator";
       nodeType: string;
@@ -34,4 +34,9 @@ export interface SubtreeDescriptor {
   /** Absolute path to the .dm file that contains the behavior_tree_json reference (for navigation). */
   dmPath?: string;
   root: BtNode;
+  /** Root-level binding declarations from the .bt.json file. Keys are binding names. */
+  bindings?: Record<string, { label: string; default: string }>;
 }
+
+/** Binding declarations as stored in the root of a .bt.json file. */
+export type BtBindingDeclarations = Record<string, { label: string; default: string }>;
