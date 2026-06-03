@@ -158,7 +158,7 @@ function BtEditorInner() {
       if (btNode.kind === "subtree") {
         const allRefs = [...(state.subtreeRefs ?? []), ...(state.controllerRefs ?? [])];
         const ref = allRefs.find((r) => r.typePath === btNode.behaviorType);
-        if (ref) openSubtree(ref.typePath, ref.filePath, ref.jsonPath);
+        if (ref) openSubtree(ref.typePath, ref.filePath, ref.jsonPath, true, ref.inherited);
       } else if (btNode.kind === "leaf") {
         revealType(btNode.behaviorType);
       } else if (btNode.kind === "decorator") {
@@ -512,7 +512,7 @@ function BtEditorInner() {
             <CtxItem label="Open in New Window" onClick={() => {
               const allRefs = [...(state.subtreeRefs ?? []), ...(state.controllerRefs ?? [])];
               const ref = allRefs.find((r) => r.typePath === (ctxMenu.btNode as Extract<BtNode, { kind: "subtree" }>).behaviorType);
-              if (ref) openSubtree(ref.typePath, ref.filePath, ref.jsonPath);
+              if (ref) openSubtree(ref.typePath, ref.filePath, ref.jsonPath, true, ref.inherited);
               setCtxMenu(null);
             }} />
             <CtxItem label="Go to DM Source" onClick={() => {

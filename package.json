@@ -2,7 +2,7 @@
   "name": "behaviortreeg",
   "displayName": "BehaviorTreeG",
   "description": "Visual behavior tree editor for tgstation's implementation of behavior trees",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "icon": "media/bt-editor-logo.png",
   "license": "GPL-3.0",
   "publisher": "behaviortreeg",
@@ -49,6 +49,11 @@
         "command": "bt-editor.refresh-browser",
         "title": "Refresh Behavior Tree Browser",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "bt-editor.create-bt-json",
+        "title": "Create New Behavior Tree JSON",
+        "icon": "$(add)"
       }
     ],
     "viewsContainers": {
@@ -107,8 +112,13 @@
       "view/item/context": [
         {
           "command": "bt-editor.open-json",
-          "when": "viewItem == btEntry",
+          "when": "viewItem == btEntry || viewItem == btEntryInherited || viewItem == btEntryNoJson",
           "group": "inline"
+        },
+        {
+          "command": "bt-editor.create-bt-json",
+          "when": "viewItem == btEntryInherited",
+          "group": "1_actions"
         }
       ]
     }

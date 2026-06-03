@@ -2,16 +2,17 @@ import * as vscode from "vscode";
 import { scanAll } from "./fileSync";
 import type { ScanResult } from "./fileSync";
 
-type Ref = { typePath: string; filePath: string; jsonPath?: string };
+type Ref = { typePath: string; filePath: string; jsonPath?: string; inherited?: boolean };
 
 const CACHE_KEY = "btEditor.scanCache";
 
-class BtTreeItem extends vscode.TreeItem {
+export class BtTreeItem extends vscode.TreeItem {
   constructor(
     label: string,
     collapsibleState: vscode.TreeItemCollapsibleState,
     public readonly itemKind: "category" | "entry" | "empty",
     public readonly category?: "subtrees" | "controllers",
+    public readonly ref?: Ref,
   ) {
     super(label, collapsibleState);
   }
@@ -76,7 +77,8 @@ export class BtBrowserProvider implements vscode.TreeDataProvider<BtTreeItem> {
         empty.description = "";
         return [empty];
       }
-      return refs.map((ref) => this._makeLeafItem(ref, element.category === "controllers"));
+      const sorted = [...refs].sort((a, b) => a.typePath.localeCompare(b.typePath));
+      return sorted.map((ref) => this._makeLeafItem(ref, element.category === "controllers"));
     }
 
     return [];
@@ -97,15 +99,23 @@ export class BtBrowserProvider implements vscode.TreeDataProvider<BtTreeItem> {
   private _makeLeafItem(ref: Ref, isController = false): BtTreeItem {
     const segments = ref.typePath.split("/").filter(Boolean);
     const label = segments.pop() ?? ref.typePath;
-    const item = new BtTreeItem(label, vscode.TreeItemCollapsibleState.None, "entry");
+    const item = new BtTreeItem(label, vscode.TreeItemCollapsibleState.None, "entry", undefined, ref);
     item.description = ref.typePath;
-    item.tooltip = isController && !ref.jsonPath
-      ? `${ref.typePath}\n⚠ No behavior_tree_json found`
-      : ref.typePath;
-    item.contextValue = "btEntry";
 
-    if (isController && !ref.jsonPath) {
+    if (ref.inherited) {
+      item.iconPath = new vscode.ThemeIcon(
+        "type-hierarchy-sub",
+        new vscode.ThemeColor("editorWarning.foreground"),
+      );
+      item.tooltip = `${ref.typePath}\n↑ Inherits behavior tree from parent`;
+      item.contextValue = "btEntryInherited";
+    } else if (isController && !ref.jsonPath) {
       item.iconPath = new vscode.ThemeIcon("error", new vscode.ThemeColor("errorForeground"));
+      item.tooltip = `${ref.typePath}\n⚠ No behavior_tree_json found`;
+      item.contextValue = "btEntryNoJson";
+    } else {
+      item.tooltip = ref.typePath;
+      item.contextValue = "btEntry";
     }
 
     item.command = {

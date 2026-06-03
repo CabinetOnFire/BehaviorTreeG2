@@ -230,8 +230,8 @@ export function useBtEditor() {
   const loadSubtrees = useCallback(() => { postMessage({ type: "load_subtrees" }); }, [postMessage]);
 
   const openSubtree = useCallback(
-    (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean) => {
-      postMessage({ type: "open_subtree", typePath, filePath, jsonPath, newPanel });
+    (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean, inherited?: boolean) => {
+      postMessage({ type: "open_subtree", typePath, filePath, jsonPath, newPanel, inherited });
     },
     [postMessage],
   );

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { BtEditorPanel, BtEditorProvider } from "./btEditorPanel";
-import { BtBrowserProvider } from "./btBrowserProvider";
+import { BtBrowserProvider, BtTreeItem } from "./btBrowserProvider";
 
 export function activate(context: vscode.ExtensionContext) {
   const browserProvider = new BtBrowserProvider(context);
@@ -44,6 +44,12 @@ export function activate(context: vscode.ExtensionContext) {
     }),
 
     vscode.commands.registerCommand("bt-editor.refresh-browser", async () => {
+      await browserProvider.doScan(BtEditorPanel.onScanComplete);
+    }),
+
+    vscode.commands.registerCommand("bt-editor.create-bt-json", async (item: BtTreeItem) => {
+      if (!item?.ref) return;
+      await BtEditorPanel.createBtJsonForType(context, item.ref.filePath, item.ref.typePath);
       await browserProvider.doScan(BtEditorPanel.onScanComplete);
     }),
 

@@ -350,15 +350,33 @@ export class BtEditorPanel {
 
   /** Offer to create a .bt.json and wire it into the DM file for an unmigrated type. */
   private async _promptCreateBtJson(dmUri: vscode.Uri, typePath: string): Promise<void> {
+    await BtEditorPanel.createBtJsonForType(this._context, dmUri.fsPath, typePath);
+    // Refresh the active panel with the newly created file (createBtJsonForType calls createOrShow,
+    // which will reuse this panel since it's currentPanel).
+  }
+
+  /**
+   * Create a new .bt.json for `typePath` in the same directory as `dmFilePath`,
+   * insert the `behavior_tree_json` var into the DM file, update the workspace
+   * cache, and open the new file in the BT Editor.  Called both from instance
+   * context (via _promptCreateBtJson) and from the sidebar "Create New JSON"
+   * context-menu command.
+   */
+  static async createBtJsonForType(
+    context: vscode.ExtensionContext,
+    dmFilePath: string,
+    typePath: string,
+  ): Promise<void> {
     const log = BtEditorPanel.outputChannel;
+    const dmUri = vscode.Uri.file(dmFilePath);
     const typeName = typePath.split("/").filter(Boolean).pop() ?? "tree";
     const suggestedFileName = `${typeName}.bt.json`;
 
-    log.appendLine(`[promptCreateBtJson] ${typePath} → creating ${suggestedFileName} in ${path.dirname(dmUri.fsPath)}`);
+    log.appendLine(`[createBtJsonForType] ${typePath} → ${suggestedFileName} in ${path.dirname(dmFilePath)}`);
 
-    const jsonUri = vscode.Uri.file(path.join(path.dirname(dmUri.fsPath), suggestedFileName));
+    const jsonUri = vscode.Uri.file(path.join(path.dirname(dmFilePath), suggestedFileName));
     await createEmptyBtJson(jsonUri);
-    log.appendLine(`[promptCreateBtJson] created ${jsonUri.fsPath}`);
+    log.appendLine(`[createBtJsonForType] created ${jsonUri.fsPath}`);
 
     // Insert the behavior_tree_json line after the type declaration in the DM file
     const doc = await vscode.workspace.openTextDocument(dmUri);
@@ -375,25 +393,26 @@ export class BtEditorPanel {
       );
       await vscode.workspace.applyEdit(edit);
       await doc.save();
-      log.appendLine(`[promptCreateBtJson] inserted behavior_tree_json line at DM line ${insertLine + 1}`);
+      log.appendLine(`[createBtJsonForType] inserted behavior_tree_json at DM line ${insertLine + 1}`);
     } else {
-      log.appendLine(`[promptCreateBtJson] WARNING: could not find type declaration line for ${typePath} in ${dmUri.fsPath} to insert behavior_tree_json`);
+      log.appendLine(`[createBtJsonForType] WARNING: could not find type declaration for ${typePath} in ${dmFilePath}`);
     }
 
     // Update the cache so future opens find the jsonPath directly
-    const cached = this._context.workspaceState.get<ScanResult>(BtEditorPanel._CACHE_SCAN);
+    const cached = context.workspaceState.get<ScanResult>(BtEditorPanel.CACHE_SCAN);
     if (cached) {
       const entry =
         cached.subtrees.find((s) => s.typePath === typePath) ??
         cached.controllers.find((c) => c.typePath === typePath);
       if (entry) {
         entry.jsonPath = jsonUri.fsPath;
-        await this._context.workspaceState.update(BtEditorPanel._CACHE_SCAN, cached);
-        log.appendLine(`[promptCreateBtJson] cache updated: ${typePath} → ${jsonUri.fsPath}`);
+        entry.inherited = false;
+        await context.workspaceState.update(BtEditorPanel.CACHE_SCAN, cached);
+        log.appendLine(`[createBtJsonForType] cache updated: ${typePath} → ${jsonUri.fsPath}`);
       }
     }
 
-    await this._openJsonFile(jsonUri);
+    BtEditorPanel.createOrShow(context, jsonUri);
   }
 
   // ── Auto-scan ─────────────────────────────────────────────────────────────
@@ -555,6 +574,24 @@ export class BtEditorPanel {
           const dmFilePath = cacheEntry?.filePath ?? msg.filePath;
           log.appendLine(`[open_subtree] no JSON for ${msg.typePath}, prompting to create in ${dmFilePath}`);
           await this._promptCreateBtJson(vscode.Uri.file(dmFilePath), msg.typePath);
+        } else if (msg.inherited) {
+          // Type inherits JSON from a parent — offer to create its own or just open the parent.
+          const dmFilePath = cacheEntry?.filePath ?? msg.filePath;
+          log.appendLine(`[open_subtree] ${msg.typePath} is inherited, prompting`);
+          const answer = await vscode.window.showInformationMessage(
+            `"${msg.typePath}" has no behavior tree of its own — it inherits from a parent type.`,
+            "Create New Tree",
+            "Open Parent Tree",
+          );
+          if (answer === "Create New Tree") {
+            await this._promptCreateBtJson(vscode.Uri.file(dmFilePath), msg.typePath);
+          } else if (answer === "Open Parent Tree") {
+            if (msg.newPanel) {
+              BtEditorPanel.createNew(this._context, vscode.Uri.file(jsonPath));
+            } else {
+              await this._openJsonFile(vscode.Uri.file(jsonPath));
+            }
+          }
         } else if (msg.newPanel) {
           log.appendLine(`[open_subtree] opening new panel → ${jsonPath}`);
           BtEditorPanel.createNew(this._context, vscode.Uri.file(jsonPath));

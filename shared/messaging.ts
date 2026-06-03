@@ -21,7 +21,7 @@ export type WebMsg =
   | { type: "reveal_in_file"; index: number }
   | { type: "load_behaviors" }
   | { type: "load_subtrees" }
-  | { type: "open_subtree"; typePath: string; filePath: string; jsonPath?: string; newPanel?: boolean }
+  | { type: "open_subtree"; typePath: string; filePath: string; jsonPath?: string; newPanel?: boolean; inherited?: boolean }
   | { type: "reveal_type"; typePath: string }
   | { type: "refresh_types" }
   | { type: "set_dirty"; dirty: boolean }

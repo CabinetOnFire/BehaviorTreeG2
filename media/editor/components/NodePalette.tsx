@@ -8,7 +8,7 @@ interface NodePaletteProps {
   typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
   subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
-  onOpen: (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean) => void;
+  onOpen: (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean, inherited?: boolean) => void;
   onRevealType: (typePath: string) => void;
 }
 
@@ -47,10 +47,14 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
     ? behaviors.filter((b) => b.toLowerCase().includes(behaviorFilter.toLowerCase()))
     : [];
   const filteredControllers = controllerRefs
-    ? controllerRefs.filter((c) => c.typePath.toLowerCase().includes(lc))
+    ? controllerRefs
+        .filter((c) => c.typePath.toLowerCase().includes(lc))
+        .sort((a, b) => a.typePath.localeCompare(b.typePath))
     : [];
   const filteredSubtrees = subtreeRefs
-    ? subtreeRefs.filter((s) => s.typePath.toLowerCase().includes(lc))
+    ? subtreeRefs
+        .filter((s) => s.typePath.toLowerCase().includes(lc))
+        .sort((a, b) => a.typePath.localeCompare(b.typePath))
     : [];
 
   const decoratorList = typeVars
@@ -230,7 +234,7 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
                     typePath={c.typePath}
                     color={c.inherited ? "#FFB74D" : c.jsonPath ? "#F06292" : "#F44336"}
                     inherited={c.inherited}
-                    onClick={() => onOpen(c.typePath, c.filePath, c.jsonPath, true)}
+                    onClick={() => onOpen(c.typePath, c.filePath, c.jsonPath, true, c.inherited)}
                     onDoubleClick={() => onRevealType(c.typePath)}
                   />
                 ))}
