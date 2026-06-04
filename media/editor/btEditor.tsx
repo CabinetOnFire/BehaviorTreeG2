@@ -33,7 +33,7 @@ import {
   BT_SUBPLAN_SUCCEED_ON_SUCCESS,
   BT_SUBPLAN_FAIL_ON_FAILURE,
 } from "../../shared/btConstants";
-import { TypeVarsContext } from "./contexts/TypeVarsContext";
+import { TypeVarsContext, ActiveBindingsContext } from "./contexts/TypeVarsContext";
 
 const nodeTypes = {
   selectorNode: SelectorNode,
@@ -290,6 +290,7 @@ function BtEditorInner() {
 
   return (
     <TypeVarsContext.Provider value={state.typeVars}>
+      <ActiveBindingsContext.Provider value={activeSub?.bindings}>
       <div
         style={{
           display: "flex",
@@ -534,6 +535,7 @@ function BtEditorInner() {
           )}
         </div>
       )}
+      </ActiveBindingsContext.Provider>
     </TypeVarsContext.Provider>
   );
 }

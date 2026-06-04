@@ -116,7 +116,7 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
       return data;
     }
     case "leaf":
-      return { behaviorType: btNode.behaviorType, args: btNode.args };
+      return { behaviorType: btNode.behaviorType, args: btNode.args, vars: btNode.vars };
     case "subtree":
       return { behaviorType: btNode.behaviorType };
     case "decorator":

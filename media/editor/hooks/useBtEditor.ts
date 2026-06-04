@@ -37,7 +37,7 @@ export interface BtEditorState {
   isDirty: boolean;
   layoutVersion: number;
   behaviors: string[] | null;
-  typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
+  typeVars: Record<string, { params: Array<{ name: string; defaultValue: string }>; vars: Array<{ name: string; defaultValue: string }> }> | null;
   subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   /** Binding declarations keyed by typePath, populated from subtrees_loaded. */
@@ -375,33 +375,20 @@ export function useBtEditor() {
   );
 
   const renameBinding = useCallback(
-    (oldName: string, newName: string) => {
+    (id: string, newLabel: string) => {
       setState((s) => {
         const sub = s.subtrees[s.activeIndex];
-        if (!sub) return s;
-        if (!newName || newName === oldName) return s;
-
-        const oldDecl = sub.bindings?.[oldName];
-        if (!oldDecl) return s;
-        // Refuse merge if newName already exists
-        if (sub.bindings?.[newName]) return s;
-
-        const newRoot = _substituteBindingNameInTree(sub.root, oldName, newName);
-        const newBindings: BtBindingDeclarations = {};
-        for (const [k, v] of Object.entries(sub.bindings ?? {})) {
-          newBindings[k === oldName ? newName : k] = v;
-        }
+        if (!sub?.bindings?.[id]) return s;
+        const newBindings: BtBindingDeclarations = {
+          ...sub.bindings,
+          [id]: { ...sub.bindings[id], label: newLabel },
+        };
         const newSubtrees = s.subtrees.map((st, i) =>
-          i === s.activeIndex ? { ...st, root: newRoot, bindings: newBindings } : st,
+          i === s.activeIndex ? { ...st, bindings: newBindings } : st,
         );
-        const pn = s.nodes.filter((n) => n.id.startsWith("pending-"));
-        const pe = s.edges.filter((e) => e.id.startsWith("pending-"));
-        const { nodes: treeNodes2, edges: treeEdges } = buildLayout(newRoot, true);
         return {
           ...s,
           subtrees: newSubtrees,
-          nodes: [...treeNodes2, ...pn],
-          edges: [...treeEdges, ...pe],
           isDirty: true,
           past: [...s.past, snapshot(s)].slice(-50),
           future: [],
@@ -1108,39 +1095,6 @@ function isComposite(node: BtNode): node is Extract<BtNode, { children: BtNode[]
   return node.kind === "selector" || node.kind === "sequence" || node.kind === "parallel" || node.kind === "subplan";
 }
 
-function _substituteBindingNameInTree(node: BtNode, oldName: string, newName: string): BtNode {
-  const placeholder = `$${oldName}`;
-  const newPlaceholder = `$${newName}`;
-
-  function subStr(v: string): string {
-    return v === placeholder ? newPlaceholder : v;
-  }
-
-  function subStrOrArr(v: string | string[]): string | string[] {
-    return Array.isArray(v) ? v.map(subStr) : subStr(v);
-  }
-
-  function walk(n: BtNode): BtNode {
-    switch (n.kind) {
-      case "selector":
-      case "sequence":
-      case "parallel":
-      case "subplan":
-        return { ...n, children: n.children.map(walk) };
-      case "decorator": {
-        const config: Record<string, string | string[]> = {};
-        for (const [k, v] of Object.entries(n.config)) config[k] = subStrOrArr(v);
-        return { ...n, config, child: n.child ? walk(n.child) : undefined };
-      }
-      case "leaf":
-        return { ...n, args: n.args.map(subStr) };
-      case "subtree":
-        return n;
-    }
-  }
-
-  return walk(node);
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Pending-group extraction helpers

@@ -5,7 +5,7 @@ import { shortTypePath } from "../utils/typeDisplay";
 interface NodePaletteProps {
   postMessage: (msg: WebMsg) => void;
   behaviors: string[] | null;
-  typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
+  typeVars: Record<string, { params: Array<{ name: string; defaultValue: string }>; vars: Array<{ name: string; defaultValue: string }> }> | null;
   subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   onOpen: (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean, inherited?: boolean) => void;

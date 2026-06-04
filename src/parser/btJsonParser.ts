@@ -77,10 +77,19 @@ function parseNode(obj: JsonObj): BtNode {
     case "leaf": {
       const rawArgs = (obj["args"] as JsonVal[]) ?? [];
       const args = rawArgs.map(scalarToString);
+      const rawVars = obj["vars"];
+      let vars: Record<string, string> | undefined;
+      if (rawVars && typeof rawVars === "object" && !Array.isArray(rawVars)) {
+        vars = {};
+        for (const [k, v] of Object.entries(rawVars as JsonObj)) {
+          vars[k] = scalarToString(v);
+        }
+      }
       return {
         kind: "leaf",
         behaviorType: String(obj["behavior"] ?? ""),
         args,
+        ...(vars && Object.keys(vars).length > 0 ? { vars } : {}),
       };
     }
 

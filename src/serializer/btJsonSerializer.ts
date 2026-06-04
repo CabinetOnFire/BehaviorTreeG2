@@ -65,12 +65,21 @@ function serializeNode(node: BtNode): JsonNode {
       return result;
     }
 
-    case "leaf":
-      return {
+    case "leaf": {
+      const out: JsonNode = {
         type: "leaf",
         behavior: node.behaviorType,
         args: node.args.map(stringToJsonScalar),
       };
+      if (node.vars && Object.keys(node.vars).length > 0) {
+        const varsOut: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(node.vars)) {
+          varsOut[k] = stringToJsonScalar(v);
+        }
+        out["vars"] = varsOut;
+      }
+      return out;
+    }
 
     case "subtree": {
       const out: JsonNode = { type: "subtree", subtype: node.behaviorType };

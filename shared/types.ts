@@ -17,7 +17,7 @@ export type BtNode =
       loopDelay?: string;
       children: BtNode[];
     }
-  | { kind: "leaf"; behaviorType: string; args: string[] }
+  | { kind: "leaf"; behaviorType: string; args: string[]; vars?: Record<string, string> }
   | { kind: "subtree"; behaviorType: string; overrideId?: string; bindings?: Record<string, string> }
   | {
       kind: "decorator";

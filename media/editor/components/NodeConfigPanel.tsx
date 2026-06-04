@@ -5,6 +5,7 @@ import {
   BT_LABELS,
 } from "../../../shared/btConstants";
 import { COMPOSITE_SCHEMAS } from "../../../shared/compositeSchema";
+import { generateBindingId } from "../utils/bindingId";
 
 interface NodeConfigPanelProps {
   node: BtNode & { id: string };
@@ -12,7 +13,7 @@ interface NodeConfigPanelProps {
   onUpdateWithBindings: (updated: BtNode, bindings: BtBindingDeclarations | undefined) => void;
   onRenameBinding: (oldName: string, newName: string) => void;
   onClose: () => void;
-  typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
+  typeVars: Record<string, { params: Array<{ name: string; defaultValue: string }>; vars: Array<{ name: string; defaultValue: string }> }> | null;
   activeSubtreeBindings: BtBindingDeclarations | undefined;
   subtreeBindings: Record<string, BtBindingDeclarations>;
 }
@@ -101,14 +102,15 @@ function NodeConfigBody({
   onUpdate: (n: BtNode) => void;
   onUpdateWithBindings: (n: BtNode, bindings: BtBindingDeclarations | undefined) => void;
   onRenameBinding: (oldName: string, newName: string) => void;
-  typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
+  typeVars: Record<string, { params: Array<{ name: string; defaultValue: string }>; vars: Array<{ name: string; defaultValue: string }> }> | null;
   activeSubtreeBindings: BtBindingDeclarations | undefined;
   subtreeBindings: Record<string, BtBindingDeclarations>;
 }) {
   switch (node.kind) {
     case "leaf":
+    case "decorator":
       return (
-        <LeafConfig
+        <TypedNodeConfig
           node={node}
           onUpdate={onUpdate}
           onUpdateWithBindings={onUpdateWithBindings}
@@ -125,17 +127,6 @@ function NodeConfigBody({
           subtreeBindings={subtreeBindings}
         />
       );
-    case "decorator":
-      return (
-        <DecoratorConfig
-          node={node}
-          onUpdate={onUpdate}
-          onUpdateWithBindings={onUpdateWithBindings}
-          onRenameBinding={onRenameBinding}
-          typeVars={typeVars}
-          activeSubtreeBindings={activeSubtreeBindings}
-        />
-      );
     case "parallel":
     case "subplan":
       return <CompositeConfig node={node} onUpdate={onUpdate} />;
@@ -147,6 +138,316 @@ function NodeConfigBody({
         </div>
       );
   }
+}
+
+// ── Field spec ────────────────────────────────────────────────────────────────
+
+interface _FieldSpec {
+  key: string;
+  name: string;
+  defaultValue: string;
+  value: string;
+  updateNode: (val: string) => BtNode;
+  bindNode: (bindName: string) => BtNode;
+  unbindNode: (restored: string) => BtNode;
+}
+
+function buildLeafSpecs(
+  node: Extract<BtNode, { kind: "leaf" }>,
+  params: Array<{ name: string; defaultValue: string }>,
+  varDecls: Array<{ name: string; defaultValue: string }>,
+): _FieldSpec[] {
+  const specs: _FieldSpec[] = [];
+
+  for (let i = 0; i < params.length; i++) {
+    const p = params[i];
+    const idx = i;
+    const applyArgs = (val: string) => {
+      const newArgs = params.map((_, j) => (j === idx ? val : (node.args[j] ?? "")));
+      while (newArgs.length > 0 && newArgs[newArgs.length - 1] === "") newArgs.pop();
+      return newArgs;
+    };
+    specs.push({
+      key: `param:${p.name}`,
+      name: p.name,
+      defaultValue: p.defaultValue,
+      value: node.args[idx] ?? "",
+      updateNode: (val) => ({ ...node, args: applyArgs(val) }),
+      bindNode: (bindName) => ({ ...node, args: applyArgs(`$${bindName}`) }),
+      unbindNode: (restored) => ({ ...node, args: applyArgs(restored) }),
+    });
+  }
+
+  for (const v of varDecls) {
+    const vname = v.name;
+    const applyVars = (val: string) => {
+      const newVars = { ...(node.vars ?? {}), [vname]: val };
+      if (val === "") delete newVars[vname];
+      return Object.keys(newVars).length > 0 ? newVars : undefined;
+    };
+    specs.push({
+      key: `var:${vname}`,
+      name: vname,
+      defaultValue: v.defaultValue,
+      value: node.vars?.[vname] ?? "",
+      updateNode: (val) => ({ ...node, vars: applyVars(val) }),
+      bindNode: (bindName) => ({ ...node, vars: { ...(node.vars ?? {}), [vname]: `$${bindName}` } }),
+      unbindNode: (restored) => ({ ...node, vars: applyVars(restored) }),
+    });
+  }
+
+  return specs;
+}
+
+function buildDecoratorSpecs(
+  node: Extract<BtNode, { kind: "decorator" }>,
+  varDecls: Array<{ name: string; defaultValue: string }>,
+): _FieldSpec[] {
+  const configValues: Record<string, string> = {};
+  for (const [k, v] of Object.entries(node.config)) {
+    configValues[k] = Array.isArray(v) ? v.join(", ") : v;
+  }
+
+  const applyConfig = (values: Record<string, string>): Record<string, string | string[]> => {
+    const parsed: Record<string, string | string[]> = {};
+    for (const v of varDecls) {
+      const raw = values[v.name] ?? "";
+      if (raw.trim()) {
+        parsed[v.name] = raw.includes(",")
+          ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+          : raw;
+      }
+    }
+    return parsed;
+  };
+
+  return varDecls.map((v) => {
+    const key = v.name;
+    return {
+      key,
+      name: v.name,
+      defaultValue: v.defaultValue,
+      value: configValues[key] ?? "",
+      updateNode: (val) => ({ ...node, config: applyConfig({ ...configValues, [key]: val }) }),
+      bindNode: (bindName) => ({ ...node, config: { ...node.config, [key]: `$${bindName}` } }),
+      unbindNode: (restored) => {
+        const restoredVal: string | string[] = restored.includes(",")
+          ? restored.split(",").map((s) => s.trim()).filter(Boolean)
+          : restored;
+        return { ...node, config: { ...node.config, [key]: restoredVal } };
+      },
+    };
+  });
+}
+
+// ── Unified leaf + decorator config ──────────────────────────────────────────
+
+function TypedNodeConfig({
+  node,
+  onUpdate,
+  onUpdateWithBindings,
+  onRenameBinding,
+  typeVars,
+  activeSubtreeBindings,
+}: {
+  node: Extract<BtNode, { kind: "leaf" | "decorator" }>;
+  onUpdate: (n: BtNode) => void;
+  onUpdateWithBindings: (n: BtNode, bindings: BtBindingDeclarations | undefined) => void;
+  onRenameBinding: (oldName: string, newName: string) => void;
+  typeVars: Record<string, { params: Array<{ name: string; defaultValue: string }>; vars: Array<{ name: string; defaultValue: string }> }> | null;
+  activeSubtreeBindings: BtBindingDeclarations | undefined;
+}) {
+  const isLeaf = node.kind === "leaf";
+  const typePath = isLeaf ? node.behaviorType : node.nodeType;
+  const label = isLeaf ? "Behavior Type" : "Decorator Type";
+  const entry = typeVars?.[typePath];
+  const params = isLeaf ? (entry?.params ?? []) : [];
+  const varDecls = entry?.vars ?? [];
+
+  const specs = isLeaf
+    ? buildLeafSpecs(node as Extract<BtNode, { kind: "leaf" }>, params, varDecls)
+    : buildDecoratorSpecs(node as Extract<BtNode, { kind: "decorator" }>, varDecls);
+
+  const [fallbackText, setFallbackText] = useState(() =>
+    isLeaf
+      ? (node as Extract<BtNode, { kind: "leaf" }>).args.join("\n")
+      : Object.entries((node as Extract<BtNode, { kind: "decorator" }>).config)
+          .map(([k, v]) => `${k} = ${Array.isArray(v) ? v.join(", ") : v}`)
+          .join("\n"),
+  );
+
+  const commitFallback = () => {
+    if (isLeaf) {
+      onUpdate({
+        ...node,
+        args: fallbackText.split("\n").map((s) => s.trim()).filter(Boolean),
+      } as BtNode);
+    } else {
+      const parsed: Record<string, string | string[]> = {};
+      for (const line of fallbackText.split("\n")) {
+        const eq = line.indexOf("=");
+        if (eq === -1) continue;
+        const k = line.slice(0, eq).trim();
+        const v = line.slice(eq + 1).trim();
+        parsed[k] = v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : v;
+      }
+      onUpdate({ ...node, config: parsed } as BtNode);
+    }
+  };
+
+  const fallbackHint = typeVars === null
+    ? "— scanning…"
+    : typePath in typeVars
+      ? "— no configurable variables"
+      : "— type not found in workspace";
+
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      <TypePathLabel>{typePath}</TypePathLabel>
+      {specs.length > 0 ? (
+        <TypedFieldRows
+          specs={specs}
+          onUpdate={onUpdate}
+          onUpdateWithBindings={onUpdateWithBindings}
+          onRenameBinding={onRenameBinding}
+          activeSubtreeBindings={activeSubtreeBindings}
+        />
+      ) : (
+        <>
+          <FieldLabel>
+            {isLeaf ? "Args (one per line)" : "Config (key = value, one per line)"}
+            <HintText>{fallbackHint}</HintText>
+          </FieldLabel>
+          <textarea
+            value={fallbackText}
+            onChange={(e) => setFallbackText(e.target.value)}
+            onBlur={commitFallback}
+            rows={isLeaf ? 5 : 6}
+            style={textAreaStyle}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Shared field row rendering ────────────────────────────────────────────────
+
+function TypedFieldRows({
+  specs,
+  onUpdate,
+  onUpdateWithBindings,
+  onRenameBinding,
+  activeSubtreeBindings,
+}: {
+  specs: _FieldSpec[];
+  onUpdate: (n: BtNode) => void;
+  onUpdateWithBindings: (n: BtNode, bindings: BtBindingDeclarations | undefined) => void;
+  onRenameBinding: (oldName: string, newName: string) => void;
+  activeSubtreeBindings: BtBindingDeclarations | undefined;
+}) {
+  const [pendingBindKey, setPendingBindKey] = useState<string | null>(null);
+  const [pendingBindName, setPendingBindName] = useState("");
+
+  return (
+    <>
+      {specs.map((f) => {
+        const isBound = f.value.startsWith("$");
+        const bindingName = isBound ? f.value.slice(1) : null;
+        const decl = bindingName ? activeSubtreeBindings?.[bindingName] : undefined;
+        const isPendingBind = pendingBindKey === f.key;
+
+        const confirmBind = (rawLabel: string) => {
+          const label = rawLabel.trim();
+          if (!label) { setPendingBindKey(null); return; }
+          const id = generateBindingId();
+          const newBindings: BtBindingDeclarations = {
+            ...(activeSubtreeBindings ?? {}),
+            [id]: { label, default: f.value },
+          };
+          onUpdateWithBindings(f.bindNode(id), newBindings);
+          setPendingBindKey(null);
+        };
+
+        const removeBinding = () => {
+          if (!bindingName) return;
+          const restored = decl?.default ?? "";
+          const newBindings = { ...(activeSubtreeBindings ?? {}) };
+          delete newBindings[bindingName];
+          onUpdateWithBindings(
+            f.unbindNode(restored),
+            Object.keys(newBindings).length > 0 ? newBindings : undefined,
+          );
+        };
+
+        const updateBindingDefault = (newDefault: string) => {
+          if (!decl || !bindingName) return;
+          onUpdateWithBindings(f.updateNode(f.value), {
+            ...(activeSubtreeBindings ?? {}),
+            [bindingName]: { ...decl, default: newDefault },
+          });
+        };
+
+        return (
+          <div key={f.key}>
+            <VarFieldLabel name={f.name} defaultValue={f.defaultValue} />
+            {isBound && bindingName ? (
+              <BoundArgRow
+                bindingId={bindingName}
+                bindingDecl={decl}
+                onRenameLabel={(id, newLabel) => onRenameBinding(id, newLabel)}
+                onRemove={removeBinding}
+                onDefaultChange={updateBindingDefault}
+              />
+            ) : isPendingBind ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 2 }}>
+                <div style={{ opacity: 0.6, fontSize: 10 }}>Binding name:</div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <input
+                    autoFocus
+                    value={pendingBindName}
+                    onChange={(e) => setPendingBindName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") confirmBind(pendingBindName);
+                      if (e.key === "Escape") setPendingBindKey(null);
+                    }}
+                    onBlur={() => confirmBind(pendingBindName)}
+                    placeholder={f.name}
+                    style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }}
+                  />
+                  <button
+                    onMouseDown={(e) => { e.preventDefault(); setPendingBindKey(null); }}
+                    style={smallButtonStyle}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 4, alignItems: "flex-start" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <TypedVarInput
+                    varName={f.name}
+                    defaultValue={f.defaultValue}
+                    value={f.value}
+                    onChange={(val) => onUpdate(f.updateNode(val))}
+                  />
+                </div>
+                <button
+                  onClick={() => { setPendingBindKey(f.key); setPendingBindName(f.name); }}
+                  title="Make this a binding"
+                  style={{ ...smallButtonStyle, marginTop: 2, opacity: 0.5 }}
+                >
+                  ⬡
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
 }
 
 function SubtreeConfig({
@@ -213,7 +514,6 @@ function SubtreeConfig({
           {declEntries.map(([name, decl]) => (
             <BindingOverrideField
               key={name}
-              name={name}
               decl={decl}
               value={node.bindings?.[name] ?? ""}
               onCommit={(val) => setBindingOverride(name, val)}
@@ -226,12 +526,10 @@ function SubtreeConfig({
 }
 
 function BindingOverrideField({
-  name,
   decl,
   value,
   onCommit,
 }: {
-  name: string;
   decl: { label: string; default: string };
   value: string;
   onCommit: (val: string) => void;
@@ -241,10 +539,7 @@ function BindingOverrideField({
 
   return (
     <div>
-      <FieldLabel>
-        {decl.label}
-        <span style={{ fontFamily: "monospace", marginLeft: 4, fontSize: 9, opacity: 0.5 }}>({name})</span>
-      </FieldLabel>
+      <FieldLabel>{decl.label}</FieldLabel>
       <input
         value={local}
         onChange={(e) => setLocal(e.target.value)}
@@ -257,187 +552,24 @@ function BindingOverrideField({
   );
 }
 
-function LeafConfig({
-  node,
-  onUpdate,
-  onUpdateWithBindings,
-  onRenameBinding,
-  typeVars,
-  activeSubtreeBindings,
-}: {
-  node: Extract<BtNode, { kind: "leaf" }>;
-  onUpdate: (n: BtNode) => void;
-  onUpdateWithBindings: (n: BtNode, bindings: BtBindingDeclarations | undefined) => void;
-  onRenameBinding: (oldName: string, newName: string) => void;
-  typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
-  activeSubtreeBindings: BtBindingDeclarations | undefined;
-}) {
-  const entry = typeVars?.[node.behaviorType] ?? [];
-  const [textValue, setTextValue] = useState(() => node.args.join("\n"));
-  const [pendingBindIndex, setPendingBindIndex] = useState<number | null>(null);
-  const [pendingBindName, setPendingBindName] = useState("");
-
-  const confirmBind = (index: number, rawName: string) => {
-    const name = rawName.trim().replace(/\s+/g, "_");
-    if (!name) { setPendingBindIndex(null); return; }
-    const currentVal = node.args[index] ?? "";
-    const newArgs = entry.map((_, j) => (j === index ? `$${name}` : (node.args[j] ?? "")));
-    while (newArgs.length > 0 && newArgs[newArgs.length - 1] === "") newArgs.pop();
-    const newBindings: BtBindingDeclarations = {
-      ...(activeSubtreeBindings ?? {}),
-      [name]: { label: entry[index]?.name ?? name, default: currentVal },
-    };
-    onUpdateWithBindings({ ...node, args: newArgs }, newBindings);
-    setPendingBindIndex(null);
-  };
-
-  const removeArgBinding = (index: number, bindingName: string) => {
-    const decl = activeSubtreeBindings?.[bindingName];
-    const newArgs = entry.map((_, j) => (j === index ? (decl?.default ?? "") : (node.args[j] ?? "")));
-    while (newArgs.length > 0 && newArgs[newArgs.length - 1] === "") newArgs.pop();
-    const newBindings = { ...(activeSubtreeBindings ?? {}) };
-    delete newBindings[bindingName];
-    onUpdateWithBindings({ ...node, args: newArgs }, Object.keys(newBindings).length > 0 ? newBindings : undefined);
-  };
-
-  const updateArgBindingDefault = (bindingName: string, newDefault: string) => {
-    const decl = activeSubtreeBindings?.[bindingName];
-    if (!decl) return;
-    const newBindings: BtBindingDeclarations = {
-      ...(activeSubtreeBindings ?? {}),
-      [bindingName]: { ...decl, default: newDefault },
-    };
-    onUpdateWithBindings(node, newBindings);
-  };
-
-  if (entry.length > 0) {
-    return (
-      <div>
-        <FieldLabel>Behavior Type</FieldLabel>
-        <TypePathLabel>{node.behaviorType}</TypePathLabel>
-        {entry.map((v, i) => {
-          const argVal = node.args[i] ?? "";
-          const isBound = argVal.startsWith("$");
-          const bindingName = isBound ? argVal.slice(1) : null;
-          const decl = bindingName ? activeSubtreeBindings?.[bindingName] : undefined;
-          const isPendingBind = pendingBindIndex === i;
-
-          return (
-            <div key={v.name}>
-              <VarFieldLabel name={v.name} defaultValue={v.defaultValue} />
-              {isBound && bindingName ? (
-                <BoundArgRow
-                  bindingName={bindingName}
-                  bindingDecl={decl}
-                  onRename={(oldName, newName) => onRenameBinding(oldName, newName)}
-                  onRemove={() => removeArgBinding(i, bindingName)}
-                  onDefaultChange={(newDefault) => updateArgBindingDefault(bindingName, newDefault)}
-                />
-              ) : isPendingBind ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 2 }}>
-                  <div style={{ opacity: 0.6, fontSize: 10 }}>Binding name:</div>
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <input
-                      autoFocus
-                      value={pendingBindName}
-                      onChange={(e) => setPendingBindName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") confirmBind(i, pendingBindName);
-                        if (e.key === "Escape") setPendingBindIndex(null);
-                      }}
-                      onBlur={() => confirmBind(i, pendingBindName)}
-                      placeholder={v.name}
-                      style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }}
-                    />
-                    <button
-                      onMouseDown={(e) => { e.preventDefault(); setPendingBindIndex(null); }}
-                      style={smallButtonStyle}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 4, alignItems: "flex-start" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <TypedVarInput
-                      varName={v.name}
-                      defaultValue={v.defaultValue}
-                      value={argVal}
-                      onChange={(val) => {
-                        const newArgs = entry.map((_, j) => (j === i ? val : (node.args[j] ?? "")));
-                        while (newArgs.length > 0 && newArgs[newArgs.length - 1] === "") newArgs.pop();
-                        onUpdate({ ...node, args: newArgs });
-                      }}
-                    />
-                  </div>
-                  <button
-                    onClick={() => { setPendingBindIndex(i); setPendingBindName(v.name); }}
-                    title="Make this a binding"
-                    style={{ ...smallButtonStyle, marginTop: 2, opacity: 0.5 }}
-                  >
-                    ⬡
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // Fallback textarea when type is not found in workspace
-  return (
-    <div>
-      <FieldLabel>Behavior Type</FieldLabel>
-      <TypePathLabel>{node.behaviorType}</TypePathLabel>
-      <FieldLabel>
-        Args (one per line)
-        <HintText>
-          {typeVars === null
-            ? "— scanning…"
-            : node.behaviorType in typeVars
-              ? "— no configurable variables"
-              : "— type not found in workspace"}
-        </HintText>
-      </FieldLabel>
-      <textarea
-        value={textValue}
-        onChange={(e) => setTextValue(e.target.value)}
-        onBlur={() =>
-          onUpdate({
-            ...node,
-            args: textValue
-              .split("\n")
-              .map((s) => s.trim())
-              .filter(Boolean),
-          })
-        }
-        rows={5}
-        style={textAreaStyle}
-      />
-    </div>
-  );
-}
-
 function BoundArgRow({
-  bindingName,
+  bindingId,
   bindingDecl,
-  onRename,
+  onRenameLabel,
   onRemove,
   onDefaultChange,
 }: {
-  bindingName: string;
+  bindingId: string;
   bindingDecl: { label: string; default: string } | undefined;
-  onRename: (oldName: string, newName: string) => void;
+  onRenameLabel: (id: string, newLabel: string) => void;
   onRemove: () => void;
   onDefaultChange: (newDefault: string) => void;
 }) {
-  const [localName, setLocalName] = useState(bindingName);
+  const currentLabel = bindingDecl?.label ?? bindingId;
+  const [localLabel, setLocalLabel] = useState(currentLabel);
   const [localDefault, setLocalDefault] = useState(bindingDecl?.default ?? "");
 
-  useEffect(() => setLocalName(bindingName), [bindingName]);
+  useEffect(() => setLocalLabel(bindingDecl?.label ?? bindingId), [bindingDecl?.label, bindingId]);
   useEffect(() => setLocalDefault(bindingDecl?.default ?? ""), [bindingDecl?.default]);
 
   return (
@@ -445,14 +577,14 @@ function BoundArgRow({
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <span style={{ fontFamily: "monospace", fontSize: 10, opacity: 0.5, flex: "0 0 auto" }}>$</span>
         <input
-          value={localName}
-          onChange={(e) => setLocalName(e.target.value)}
+          value={localLabel}
+          onChange={(e) => setLocalLabel(e.target.value)}
           onBlur={() => {
-            const trimmed = localName.trim();
-            if (trimmed && trimmed !== bindingName) {
-              onRename(bindingName, trimmed);
+            const trimmed = localLabel.trim();
+            if (trimmed && trimmed !== currentLabel) {
+              onRenameLabel(bindingId, trimmed);
             } else {
-              setLocalName(bindingName);
+              setLocalLabel(currentLabel);
             }
           }}
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
@@ -472,195 +604,6 @@ function BoundArgRow({
           style={{ ...inputStyle, flex: 1 }}
         />
       </div>
-    </div>
-  );
-}
-
-function DecoratorConfig({
-  node,
-  onUpdate,
-  onUpdateWithBindings,
-  onRenameBinding,
-  typeVars,
-  activeSubtreeBindings,
-}: {
-  node: Extract<BtNode, { kind: "decorator" }>;
-  onUpdate: (n: BtNode) => void;
-  onUpdateWithBindings: (n: BtNode, bindings: BtBindingDeclarations | undefined) => void;
-  onRenameBinding: (oldName: string, newName: string) => void;
-  typeVars: Record<string, Array<{ name: string; defaultValue: string }>> | null;
-  activeSubtreeBindings: BtBindingDeclarations | undefined;
-}) {
-  const entry = typeVars?.[node.nodeType] ?? [];
-  const [textConfig, setTextConfig] = useState(() =>
-    Object.entries(node.config)
-      .map(([k, v]) => `${k} = ${Array.isArray(v) ? v.join(", ") : v}`)
-      .join("\n"),
-  );
-  const [pendingBindKey, setPendingBindKey] = useState<string | null>(null);
-  const [pendingBindName, setPendingBindName] = useState("");
-
-  const buildConfig = (values: Record<string, string>): Record<string, string | string[]> => {
-    const parsed: Record<string, string | string[]> = {};
-    for (const v of entry) {
-      const raw = (values[v.name] ?? "").trim();
-      if (raw) {
-        parsed[v.name] = raw.includes(",")
-          ? raw.split(",").map((s) => s.trim()).filter(Boolean)
-          : raw;
-      }
-    }
-    return parsed;
-  };
-
-  const confirmBind = (key: string, rawName: string) => {
-    const name = rawName.trim().replace(/\s+/g, "_");
-    if (!name) { setPendingBindKey(null); return; }
-    const currentVal = (() => {
-      const v = node.config[key];
-      return Array.isArray(v) ? v.join(", ") : (v ?? "");
-    })();
-    const newConfig = { ...node.config, [key]: `$${name}` };
-    const newBindings: BtBindingDeclarations = {
-      ...(activeSubtreeBindings ?? {}),
-      [name]: { label: key, default: currentVal },
-    };
-    onUpdateWithBindings({ ...node, config: newConfig }, newBindings);
-    setPendingBindKey(null);
-  };
-
-  const removeConfigBinding = (key: string, bindingName: string) => {
-    const decl = activeSubtreeBindings?.[bindingName];
-    const newConfig = { ...node.config, [key]: decl?.default ?? "" };
-    const newBindings = { ...(activeSubtreeBindings ?? {}) };
-    delete newBindings[bindingName];
-    onUpdateWithBindings({ ...node, config: newConfig }, Object.keys(newBindings).length > 0 ? newBindings : undefined);
-  };
-
-  const updateConfigBindingDefault = (bindingName: string, newDefault: string) => {
-    const decl = activeSubtreeBindings?.[bindingName];
-    if (!decl) return;
-    const newBindings: BtBindingDeclarations = {
-      ...(activeSubtreeBindings ?? {}),
-      [bindingName]: { ...decl, default: newDefault },
-    };
-    onUpdateWithBindings(node, newBindings);
-  };
-
-  if (entry.length > 0) {
-    const configValues: Record<string, string> = {};
-    for (const [k, v] of Object.entries(node.config)) {
-      configValues[k] = Array.isArray(v) ? v.join(", ") : v;
-    }
-
-    return (
-      <div>
-        <FieldLabel>Decorator Type</FieldLabel>
-        <TypePathLabel>{node.nodeType}</TypePathLabel>
-        {entry.map((v) => {
-          const rawVal = configValues[v.name] ?? "";
-          const isBound = rawVal.startsWith("$");
-          const bindingName = isBound ? rawVal.slice(1) : null;
-          const decl = bindingName ? activeSubtreeBindings?.[bindingName] : undefined;
-          const isPendingBind = pendingBindKey === v.name;
-
-          return (
-            <div key={v.name}>
-              <VarFieldLabel name={v.name} defaultValue={v.defaultValue} />
-              {isBound && bindingName ? (
-                <BoundArgRow
-                  bindingName={bindingName}
-                  bindingDecl={decl}
-                  onRename={(oldName, newName) => onRenameBinding(oldName, newName)}
-                  onRemove={() => removeConfigBinding(v.name, bindingName)}
-                  onDefaultChange={(newDefault) => updateConfigBindingDefault(bindingName, newDefault)}
-                />
-              ) : isPendingBind ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 2 }}>
-                  <div style={{ opacity: 0.6, fontSize: 10 }}>Binding name:</div>
-                  <div style={{ display: "flex", gap: 4 }}>
-                    <input
-                      autoFocus
-                      value={pendingBindName}
-                      onChange={(e) => setPendingBindName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") confirmBind(v.name, pendingBindName);
-                        if (e.key === "Escape") setPendingBindKey(null);
-                      }}
-                      onBlur={() => confirmBind(v.name, pendingBindName)}
-                      placeholder={v.name}
-                      style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }}
-                    />
-                    <button
-                      onMouseDown={(e) => { e.preventDefault(); setPendingBindKey(null); }}
-                      style={smallButtonStyle}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 4, alignItems: "flex-start" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <TypedVarInput
-                      varName={v.name}
-                      defaultValue={v.defaultValue}
-                      value={rawVal}
-                      onChange={(val) => {
-                        onUpdate({ ...node, config: buildConfig({ ...configValues, [v.name]: val }) });
-                      }}
-                    />
-                  </div>
-                  <button
-                    onClick={() => { setPendingBindKey(v.name); setPendingBindName(v.name); }}
-                    title="Make this a binding"
-                    style={{ ...smallButtonStyle, marginTop: 2, opacity: 0.5 }}
-                  >
-                    ⬡
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // Fallback textarea
-  return (
-    <div>
-      <FieldLabel>Decorator Type</FieldLabel>
-      <TypePathLabel>{node.nodeType}</TypePathLabel>
-      <FieldLabel>
-        Config (key = value, one per line)
-        <HintText>
-          {typeVars === null
-            ? "— scanning…"
-            : node.nodeType in typeVars
-              ? "— no configurable variables"
-              : "— type not found in workspace"}
-        </HintText>
-      </FieldLabel>
-      <textarea
-        value={textConfig}
-        onChange={(e) => setTextConfig(e.target.value)}
-        onBlur={() => {
-          const parsed: Record<string, string | string[]> = {};
-          for (const line of textConfig.split("\n")) {
-            const eq = line.indexOf("=");
-            if (eq === -1) continue;
-            const k = line.slice(0, eq).trim();
-            const v = line.slice(eq + 1).trim();
-            parsed[k] = v.includes(",")
-              ? v.split(",").map((s) => s.trim()).filter(Boolean)
-              : v;
-          }
-          onUpdate({ ...node, config: parsed });
-        }}
-        rows={6}
-        style={textAreaStyle}
-      />
     </div>
   );
 }

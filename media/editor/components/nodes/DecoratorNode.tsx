@@ -1,7 +1,7 @@
 import React from "react";
 import { Handle, Position } from "@xyflow/react";
 import { ChildOrderBadge } from "./ChildOrderBadge";
-import { useTypeVars } from "../../contexts/TypeVarsContext";
+import { useTypeVars, useResolveBinding } from "../../contexts/TypeVarsContext";
 import { shortTypePath } from "../../utils/typeDisplay";
 
 interface DecoratorNodeData {
@@ -12,8 +12,9 @@ interface DecoratorNodeData {
 
 export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
   const typeVars = useTypeVars();
+  const resolveBinding = useResolveBinding();
   const shortName = data.nodeType ? shortTypePath(data.nodeType) : "(decorator)";
-  const params = typeVars?.[data.nodeType ?? ""] ?? [];
+  const params = typeVars?.[data.nodeType ?? ""]?.vars ?? [];
   const config = data.config ?? {};
 
   type Row = { key: string; value: string; isDefault: boolean };
@@ -23,14 +24,14 @@ export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
     for (const p of params) {
       const val = config[p.name];
       if (val !== undefined) {
-        rows.push({ key: p.name, value: Array.isArray(val) ? `[${val.length}]` : lastSegment(val), isDefault: false });
+        rows.push({ key: p.name, value: Array.isArray(val) ? `[${val.length}]` : lastSegment(resolveBinding(val)), isDefault: false });
       } else if (p.defaultValue !== "null") {
         rows.push({ key: p.name, value: p.defaultValue, isDefault: true });
       }
     }
   } else {
     for (const [k, v] of Object.entries(config)) {
-      rows.push({ key: k, value: Array.isArray(v) ? `[${v.length}]` : lastSegment(v), isDefault: false });
+      rows.push({ key: k, value: Array.isArray(v) ? `[${v.length}]` : lastSegment(resolveBinding(v)), isDefault: false });
     }
   }
 

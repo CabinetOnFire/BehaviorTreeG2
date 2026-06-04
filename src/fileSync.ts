@@ -61,15 +61,35 @@ export async function createEmptyBtJson(uri: vscode.Uri): Promise<void> {
 // ScanResult & workspace scan
 // ──────────────────────────────────────────────────────────────────────────────
 
+export interface TypeVarsEntry {
+  /** Positional params from perform() — map to args[] in the leaf node. */
+  params: Array<{ name: string; defaultValue: string }>;
+  /** Declared vars on the type — map to vars{} in the leaf node. */
+  vars: Array<{ name: string; defaultValue: string }>;
+}
+
 export interface ScanResult {
   behaviors: string[];
-  subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }>;
-  controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }>;
-  typeVars: Record<string, Array<{ name: string; defaultValue: string }>>;
+  subtrees: Array<{
+    typePath: string;
+    filePath: string;
+    jsonPath?: string;
+    inherited?: boolean;
+    bindings?: BtBindingDeclarations;
+  }>;
+  controllers: Array<{
+    typePath: string;
+    filePath: string;
+    jsonPath?: string;
+    inherited?: boolean;
+    bindings?: BtBindingDeclarations;
+  }>;
+  typeVars: Record<string, TypeVarsEntry>;
   /** Maps every scanned typePath to the file where it was first declared. */
   typeFilePaths: Record<string, string>;
 }
 
+// This is where we keep nodes the editor shouldnt edit.
 const STRUCTURAL_VARS = new Set([
   "children",
   "child",
@@ -85,6 +105,12 @@ const STRUCTURAL_VARS = new Set([
   "owning_controller",
   "has_observer_signals",
   "observers_registered",
+  "behavior_flags",
+  "time_between_perform",
+  "default_behavior_args",
+  "running",
+  "next_perform_time",
+  "only_set_cooldown_on_success",
 ]);
 
 interface _RawTypeInfo {
@@ -98,7 +124,9 @@ let _activeScan: Promise<ScanResult> | null = null;
 
 export function scanAll(): Promise<ScanResult> {
   if (_activeScan) return _activeScan;
-  _activeScan = _doScanAll().finally(() => { _activeScan = null; });
+  _activeScan = _doScanAll().finally(() => {
+    _activeScan = null;
+  });
   return _activeScan;
 }
 
@@ -108,8 +136,20 @@ async function _doScanAll(): Promise<ScanResult> {
   const behaviorSet = new Set<string>();
   const seenSubtrees = new Set<string>();
   const seenControllers = new Set<string>();
-  const subtrees: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }> = [];
-  const controllers: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean; bindings?: BtBindingDeclarations }> = [];
+  const subtrees: Array<{
+    typePath: string;
+    filePath: string;
+    jsonPath?: string;
+    inherited?: boolean;
+    bindings?: BtBindingDeclarations;
+  }> = [];
+  const controllers: Array<{
+    typePath: string;
+    filePath: string;
+    jsonPath?: string;
+    inherited?: boolean;
+    bindings?: BtBindingDeclarations;
+  }> = [];
   const allTypes = new Map<string, _RawTypeInfo>();
   const typeFilePaths: Record<string, string> = {};
 
@@ -175,7 +215,9 @@ async function _doScanAll(): Promise<ScanResult> {
         await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
         btJsonRefs.set(typePath, absPath);
         return;
-      } catch { /* not at DM-relative path — try workspace glob */ }
+      } catch {
+        /* not at DM-relative path — try workspace glob */
+      }
       const found = await vscode.workspace.findFiles(relPath.replace(/\\/g, "/"), null, 1);
       if (found[0]) btJsonRefs.set(typePath, found[0].fsPath);
     }),
@@ -215,7 +257,7 @@ async function _doScanAll(): Promise<ScanResult> {
     }),
   );
 
-  const typeVars: Record<string, Array<{ name: string; defaultValue: string }>> = {};
+  const typeVars: Record<string, TypeVarsEntry> = {};
   for (const [typePath] of allTypes) {
     const isBehavior = /^\/datum\/bt_node\/ai_behavior\//.test(typePath);
     const isDecorator = /^\/datum\/bt_node\/decorator\//.test(typePath);
@@ -330,6 +372,8 @@ function _parseTypeVarsFromText(
         if (info.performParams === null) {
           info.performParams = _parsePerformParams(perfM[2]);
         }
+        currentType = null;
+        currentIsBehavior = false;
         continue;
       }
 
@@ -372,13 +416,12 @@ function _parseTypeVarsFromText(
             info.performParams = _parsePerformParams(perfM[1]);
           }
         }
-      } else {
-        const varM = rawLine.match(/^\tvar\/(?:[\w/]*\/)?(\w+)(?:\s*=\s*(.+?))?\s*(?:\/\/.*)?$/);
-        if (varM) {
-          const [, varName, defaultVal = ""] = varM;
-          if (!STRUCTURAL_VARS.has(varName)) {
-            allTypes.get(currentType)!.ownVars.set(varName, defaultVal);
-          }
+      }
+      const varM = rawLine.match(/^\tvar\/(?:[\w/]*\/)?(\w+)(?:\s*=\s*(.+?))?\s*(?:\/\/.*)?$/);
+      if (varM) {
+        const [, varName, defaultVal = ""] = varM;
+        if (!STRUCTURAL_VARS.has(varName)) {
+          allTypes.get(currentType)!.ownVars.set(varName, defaultVal);
         }
       }
     }
@@ -406,28 +449,11 @@ function _parseOneParam(param: string): { name: string; defaultValue: string } {
   return { name, defaultValue };
 }
 
-function _resolveTypeVars(
+function _resolveOwnVarsChain(
   typePath: string,
   allTypes: Map<string, _RawTypeInfo>,
   stopAt: string,
 ): Array<{ name: string; defaultValue: string }> {
-  const isBehavior = stopAt === "/datum/bt_node/ai_behavior";
-
-  if (isBehavior) {
-    let cur = typePath;
-    for (;;) {
-      const info = allTypes.get(cur);
-      if (info && info.performParams !== null) {
-        return info.performParams;
-      }
-      if (cur === stopAt) break;
-      const segs = cur.split("/").filter(Boolean);
-      if (segs.length <= 1) break;
-      cur = "/" + segs.slice(0, -1).join("/");
-    }
-    return [];
-  }
-
   const chain: string[] = [];
   let cur = typePath;
   for (;;) {
@@ -448,6 +474,34 @@ function _resolveTypeVars(
       merged.set(name, defaultVal);
     }
   }
-
   return order.map((n) => ({ name: n, defaultValue: merged.get(n)! }));
+}
+
+function _resolveTypeVars(
+  typePath: string,
+  allTypes: Map<string, _RawTypeInfo>,
+  stopAt: string,
+): TypeVarsEntry {
+  const isBehavior = stopAt === "/datum/bt_node/ai_behavior";
+
+  if (isBehavior) {
+    let params: Array<{ name: string; defaultValue: string }> = [];
+    let cur = typePath;
+    for (;;) {
+      const info = allTypes.get(cur);
+      if (info && info.performParams !== null) {
+        params = info.performParams;
+        break;
+      }
+      if (cur === stopAt) break;
+      const segs = cur.split("/").filter(Boolean);
+      if (segs.length <= 1) break;
+      cur = "/" + segs.slice(0, -1).join("/");
+    }
+    const vars = _resolveOwnVarsChain(typePath, allTypes, stopAt);
+    return { params, vars };
+  }
+
+  // Decorators: no perform params, only ownVars
+  return { params: [], vars: _resolveOwnVarsChain(typePath, allTypes, stopAt) };
 }
