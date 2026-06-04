@@ -106,11 +106,12 @@ const STRUCTURAL_VARS = new Set([
   "has_observer_signals",
   "observers_registered",
   "behavior_flags",
-  "time_between_perform",
   "default_behavior_args",
   "running",
   "next_perform_time",
   "only_set_cooldown_on_success",
+  "last_poll_result",
+  "is_polled",
 ]);
 
 interface _RawTypeInfo {
@@ -170,10 +171,14 @@ async function _doScanAll(): Promise<ScanResult> {
     }),
   );
 
-  // 2. Parse all files (pure CPU — no I/O)
+  // 2. Parse all files
+  const BT_QUICK_CHECK = /\/datum\/(?:bt_node|ai_controller)\//;
+  const yield_ = () => new Promise<void>((resolve) => setImmediate(resolve));
+  let parsed = 0;
   for (const entry of fileTexts) {
     if (!entry) continue;
     const { fsPath, text } = entry;
+    if (!BT_QUICK_CHECK.test(text)) continue;
     let m: RegExpExecArray | null;
 
     const behaviorRe = /^\/datum\/bt_node\/ai_behavior\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
@@ -205,6 +210,8 @@ async function _doScanAll(): Promise<ScanResult> {
 
     _parseBtJsonRefs(text, rawBtJsonRefs, fsPath);
     _parseTypeVarsFromText(text, allTypes, fsPath, typeFilePaths);
+
+    if (++parsed % 10 === 0) await yield_();
   }
 
   // 3. Resolve .bt.json paths in parallel — prefer DM-relative, fall back to workspace glob
@@ -355,8 +362,28 @@ function _parseTypeVarsFromText(
 ): void {
   let currentType: string | null = null;
   let currentIsBehavior = false;
+  let pendingVar: { name: string; accum: string; depth: number } | null = null;
+
+  const finalizePendingVar = () => {
+    if (!pendingVar || !currentType) return;
+    if (!STRUCTURAL_VARS.has(pendingVar.name)) {
+      allTypes.get(currentType)!.ownVars.set(pendingVar.name, pendingVar.accum.trim());
+    }
+    pendingVar = null;
+  };
 
   for (const rawLine of text.split(/\r?\n/)) {
+    // If we're accumulating a multi-line list value, keep collecting until parens balance
+    if (pendingVar) {
+      for (const ch of rawLine) {
+        if (ch === "(") pendingVar.depth++;
+        else if (ch === ")") pendingVar.depth--;
+      }
+      pendingVar.accum += " " + rawLine.trim();
+      if (pendingVar.depth <= 0) finalizePendingVar();
+      continue;
+    }
+
     if (rawLine.startsWith("/datum/")) {
       const perfM = rawLine.match(
         /^(\/datum\/bt_node\/ai_behavior(?:\/[\w]+)+)\/perform\s*\(([^)]*)\)\s*(?:\/\/.*)?$/,
@@ -421,11 +448,23 @@ function _parseTypeVarsFromText(
       if (varM) {
         const [, varName, defaultVal = ""] = varM;
         if (!STRUCTURAL_VARS.has(varName)) {
-          allTypes.get(currentType)!.ownVars.set(varName, defaultVal);
+          // Count unmatched open parens — if > 0 the value spans multiple lines
+          let depth = 0;
+          for (const ch of defaultVal) {
+            if (ch === "(") depth++;
+            else if (ch === ")") depth--;
+          }
+          if (depth > 0) {
+            pendingVar = { name: varName, accum: defaultVal, depth };
+          } else {
+            allTypes.get(currentType)!.ownVars.set(varName, defaultVal);
+          }
         }
       }
     }
   }
+  // Flush any still-open accumulator at EOF
+  finalizePendingVar();
 }
 
 function _parsePerformParams(paramsStr: string): Array<{ name: string; defaultValue: string }> {

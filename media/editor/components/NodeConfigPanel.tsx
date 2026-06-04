@@ -364,7 +364,7 @@ function TypedFieldRows({
           const id = generateBindingId();
           const newBindings: BtBindingDeclarations = {
             ...(activeSubtreeBindings ?? {}),
-            [id]: { label, default: f.value },
+            [id]: { label, default: f.value || f.defaultValue },
           };
           onUpdateWithBindings(f.bindNode(id), newBindings);
           setPendingBindKey(null);
@@ -385,7 +385,7 @@ function TypedFieldRows({
           if (!decl || !bindingName) return;
           onUpdateWithBindings(f.updateNode(f.value), {
             ...(activeSubtreeBindings ?? {}),
-            [bindingName]: { ...decl, default: newDefault },
+            [bindingName]: { ...decl, default: newDefault || f.defaultValue },
           });
         };
 
@@ -464,6 +464,7 @@ function SubtreeConfig({
 
   const decls = subtreeBindings[node.behaviorType];
   const declEntries = decls ? Object.entries(decls) : [];
+  console.log("[SubtreeConfig] behaviorType:", node.behaviorType, "| declEntries:", declEntries.map(([k, v]) => `${k}→${v.label}`));
 
   const commitNodeUpdate = (overrides?: Record<string, string>) => {
     onUpdate({
@@ -815,20 +816,12 @@ function TypedVarInput({
     );
   }
 
-  const placeholder =
-    ft === "bbkey"
-      ? "BB_KEY_NAME"
-      : ft === "typepath"
-        ? "/datum/type/path"
-        : ft === "number"
-          ? "0"
-          : defaultValue !== "null"
-            ? defaultValue
-            : "";
+  const placeholder = defaultValue && defaultValue !== "null" ? defaultValue : "";
 
   return (
     <input
-      type={ft === "number" ? "number" : "text"}
+      type="text"
+      inputMode={ft === "number" ? "numeric" : undefined}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
