@@ -112,6 +112,7 @@ const STRUCTURAL_VARS = new Set([
   "only_set_cooldown_on_success",
   "last_poll_result",
   "is_polled",
+  "node_type",
 ]);
 
 interface _RawTypeInfo {
@@ -449,6 +450,24 @@ function _parseTypeVarsFromText(
         const [, varName, defaultVal = ""] = varM;
         if (!STRUCTURAL_VARS.has(varName)) {
           // Count unmatched open parens — if > 0 the value spans multiple lines
+          let depth = 0;
+          for (const ch of defaultVal) {
+            if (ch === "(") depth++;
+            else if (ch === ")") depth--;
+          }
+          if (depth > 0) {
+            pendingVar = { name: varName, accum: defaultVal, depth };
+          } else {
+            allTypes.get(currentType)!.ownVars.set(varName, defaultVal);
+          }
+        }
+      }
+      // Also catch plain subtype var-default overrides: `\tvarname = value` (no var/ prefix).
+      // DM subtypes commonly set a parent var's default this way without re-declaring it.
+      const plainVarM = !varM && rawLine.match(/^\t(\w+)\s*=\s*(.+?)\s*(?:\/\/.*)?$/);
+      if (plainVarM) {
+        const [, varName, defaultVal] = plainVarM;
+        if (!STRUCTURAL_VARS.has(varName)) {
           let depth = 0;
           for (const ch of defaultVal) {
             if (ch === "(") depth++;

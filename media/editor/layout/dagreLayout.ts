@@ -192,6 +192,72 @@ export function buildLayout(root: BtNode, includeRootStub = false): LayoutResult
     }
   }
 
+  // Resolve sibling-subtree overlaps bottom-up.
+  // The ordering fix above only swaps node centers; it ignores subtree widths, so
+  // wide children (e.g. sequences with many leaves) can still overlap each other.
+  {
+    const GAP = 20;
+
+    const _subtreeIdCache = new Map<string, string[]>();
+    function allSubtreeIds(id: string): string[] {
+      const cached = _subtreeIdCache.get(id);
+      if (cached) return cached;
+      const result: string[] = [id];
+      for (const ln of layoutNodes) {
+        if (ln.parentId === id) result.push(...allSubtreeIds(ln.id));
+      }
+      _subtreeIdCache.set(id, result);
+      return result;
+    }
+
+    function subtreeBounds(id: string): { minX: number; maxX: number } {
+      let minX = Infinity,
+        maxX = -Infinity;
+      for (const sid of allSubtreeIds(id)) {
+        const ln2 = layoutNodes.find((n) => n.id === sid)!;
+        const sz = nodeSize(ln2.btNode);
+        const pos = g.node(sid);
+        if (pos.x - sz.width / 2 < minX) minX = pos.x - sz.width / 2;
+        if (pos.x + sz.width / 2 > maxX) maxX = pos.x + sz.width / 2;
+      }
+      return { minX, maxX };
+    }
+
+    function shiftSubtree(id: string, dx: number) {
+      if (Math.abs(dx) < 0.01) return;
+      for (const sid of allSubtreeIds(id)) {
+        const pos = g.node(sid);
+        g.setNode(sid, { ...pos, x: pos.x + dx });
+      }
+    }
+
+    // Reversed DFS pre-order = bottom-up: children processed before their parent.
+    for (const ln of [...layoutNodes].reverse()) {
+      const children = layoutNodes.filter(
+        (c) => c.parentId === ln.id && !c.isDecoratorChild && c.siblingIndex !== null,
+      );
+      if (children.length < 2) continue;
+
+      const byIndex = [...children].sort((a, b) => (a.siblingIndex ?? 0) - (b.siblingIndex ?? 0));
+
+      // Push each sibling right if it overlaps the previous one.
+      for (let i = 1; i < byIndex.length; i++) {
+        const prevBounds = subtreeBounds(byIndex[i - 1].id);
+        const currBounds = subtreeBounds(byIndex[i].id);
+        const gap = currBounds.minX - prevBounds.maxX;
+        if (gap < GAP) {
+          shiftSubtree(byIndex[i].id, GAP - gap);
+        }
+      }
+
+      // Re-center parent above its children.
+      const firstX = g.node(byIndex[0].id).x;
+      const lastX = g.node(byIndex[byIndex.length - 1].id).x;
+      const parentPos = g.node(ln.id);
+      g.setNode(ln.id, { ...parentPos, x: (firstX + lastX) / 2 });
+    }
+  }
+
   const nodes: Node[] = layoutNodes.map((ln) => {
     const pos = g.node(ln.id);
     const size = nodeSize(ln.btNode);

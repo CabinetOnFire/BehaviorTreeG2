@@ -124,7 +124,10 @@ function NodeConfigBody({
         <SubtreeConfig
           node={node}
           onUpdate={onUpdate}
+          onUpdateWithBindings={onUpdateWithBindings}
+          onRenameBinding={onRenameBinding}
           subtreeBindings={subtreeBindings}
+          activeSubtreeBindings={activeSubtreeBindings}
         />
       );
     case "parallel":
@@ -453,18 +456,29 @@ function TypedFieldRows({
 function SubtreeConfig({
   node,
   onUpdate,
+  onUpdateWithBindings,
+  onRenameBinding,
   subtreeBindings,
+  activeSubtreeBindings,
 }: {
   node: Extract<BtNode, { kind: "subtree" }>;
   onUpdate: (n: BtNode) => void;
+  onUpdateWithBindings: (n: BtNode, bindings: BtBindingDeclarations | undefined) => void;
+  onRenameBinding: (oldName: string, newName: string) => void;
   subtreeBindings: Record<string, BtBindingDeclarations>;
+  activeSubtreeBindings: BtBindingDeclarations | undefined;
 }) {
   const [path, setPath] = useState(node.behaviorType);
   const [overrideId, setOverrideId] = useState(node.overrideId ?? "");
+  const [pendingBind, setPendingBind] = useState(false);
+  const [pendingBindName, setPendingBindName] = useState("");
 
-  const decls = subtreeBindings[node.behaviorType];
+  const isPathBound = node.behaviorType.startsWith("$");
+  const pathBindingId = isPathBound ? node.behaviorType.slice(1) : null;
+  const pathBindingDecl = pathBindingId ? activeSubtreeBindings?.[pathBindingId] : undefined;
+
+  const decls = isPathBound ? undefined : subtreeBindings[node.behaviorType];
   const declEntries = decls ? Object.entries(decls) : [];
-  console.log("[SubtreeConfig] behaviorType:", node.behaviorType, "| declEntries:", declEntries.map(([k, v]) => `${k}→${v.label}`));
 
   const commitNodeUpdate = (overrides?: Record<string, string>) => {
     onUpdate({
@@ -490,15 +504,93 @@ function SubtreeConfig({
     });
   };
 
+  const confirmPathBind = (rawLabel: string) => {
+    const label = rawLabel.trim();
+    if (!label) { setPendingBind(false); return; }
+    const id = generateBindingId();
+    const newBindings: BtBindingDeclarations = {
+      ...(activeSubtreeBindings ?? {}),
+      [id]: { label, default: path || "" },
+    };
+    onUpdateWithBindings(
+      { ...node, behaviorType: `$${id}`, overrideId: overrideId.trim() || undefined },
+      newBindings,
+    );
+    setPendingBind(false);
+  };
+
+  const removePathBinding = () => {
+    if (!pathBindingId) return;
+    const restored = pathBindingDecl?.default ?? "";
+    const newBindings = { ...(activeSubtreeBindings ?? {}) };
+    delete newBindings[pathBindingId];
+    setPath(restored);
+    onUpdateWithBindings(
+      { ...node, behaviorType: restored, overrideId: overrideId.trim() || undefined },
+      Object.keys(newBindings).length > 0 ? newBindings : undefined,
+    );
+  };
+
+  const updatePathBindingDefault = (newDefault: string) => {
+    if (!pathBindingDecl || !pathBindingId) return;
+    onUpdateWithBindings(node, {
+      ...(activeSubtreeBindings ?? {}),
+      [pathBindingId]: { ...pathBindingDecl, default: newDefault },
+    });
+  };
+
   return (
     <div>
       <FieldLabel>Subtree Path</FieldLabel>
-      <input
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        onBlur={() => commitNodeUpdate(node.bindings)}
-        style={{ ...textAreaStyle, padding: "4px 6px", height: "auto" }}
-      />
+      {isPathBound && pathBindingId ? (
+        <BoundArgRow
+          bindingId={pathBindingId}
+          bindingDecl={pathBindingDecl}
+          onRenameLabel={(id, newLabel) => onRenameBinding(id, newLabel)}
+          onRemove={removePathBinding}
+          onDefaultChange={updatePathBindingDefault}
+        />
+      ) : pendingBind ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 2 }}>
+          <div style={{ opacity: 0.6, fontSize: 10 }}>Binding slot name:</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            <input
+              autoFocus
+              value={pendingBindName}
+              onChange={(e) => setPendingBindName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmPathBind(pendingBindName);
+                if (e.key === "Escape") setPendingBind(false);
+              }}
+              onBlur={() => confirmPathBind(pendingBindName)}
+              placeholder="slot name"
+              style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }}
+            />
+            <button
+              onMouseDown={(e) => { e.preventDefault(); setPendingBind(false); }}
+              style={smallButtonStyle}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 4 }}>
+          <input
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            onBlur={() => commitNodeUpdate(node.bindings)}
+            style={{ ...textAreaStyle, padding: "4px 6px", height: "auto", flex: 1 }}
+          />
+          <button
+            onClick={() => { setPendingBind(true); setPendingBindName("subtree_slot"); }}
+            title="Make this subtree path a binding slot"
+            style={{ ...smallButtonStyle, marginTop: 2, opacity: 0.5 }}
+          >
+            ⬡
+          </button>
+        </div>
+      )}
       <FieldLabel>
         Override ID <HintText>— leave blank for none</HintText>
       </FieldLabel>

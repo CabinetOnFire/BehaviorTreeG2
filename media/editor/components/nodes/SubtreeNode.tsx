@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { BtNode } from "../../../../shared/types";
 import { ChildOrderBadge } from "./ChildOrderBadge";
 import { shortTypePath } from "../../utils/typeDisplay";
+import { useResolveBinding } from "../../contexts/TypeVarsContext";
 
 interface SubtreeNodeData {
   label: string;
@@ -15,7 +16,9 @@ interface SubtreeNodeData {
 export function SubtreeNode({ data, selected }: NodeProps) {
   const d = data as SubtreeNodeData;
   const bt = d._btNode;
-  const lastSegment = shortTypePath(bt.behaviorType);
+  const resolveBinding = useResolveBinding();
+  const displayPath = resolveBinding(bt.behaviorType);
+  const lastSegment = shortTypePath(displayPath);
 
   const accent = "#26C6DA";
   const bg = selected ? "#003740" : "#00292d";
@@ -64,7 +67,7 @@ export function SubtreeNode({ data, selected }: NodeProps) {
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
           }}
-          title={bt.behaviorType}
+          title={displayPath !== bt.behaviorType ? `${displayPath} (${bt.behaviorType})` : bt.behaviorType}
         >
           {lastSegment}
         </div>
