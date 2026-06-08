@@ -442,7 +442,7 @@ export class BtEditorPanel {
     const t0 = Date.now();
     let result: ScanResult;
     try {
-      result = await scanAll();
+      result = await scanAll(forceRefresh);
     } catch (e) {
       log.appendLine(`[autoScan] scanAll threw: ${e}`);
       return;

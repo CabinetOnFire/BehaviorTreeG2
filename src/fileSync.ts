@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import * as cp from "child_process";
 import type { BtBindingDeclarations, BtNode, SubtreeDescriptor } from "../shared/types";
 import { serializeToJsonString } from "./serializer/btJsonSerializer";
 
@@ -55,6 +56,15 @@ export async function writeSubtreeToFile(
 export async function createEmptyBtJson(uri: vscode.Uri): Promise<void> {
   const content = JSON.stringify({ type: "selector", children: [] }, null, "\t");
   await vscode.workspace.fs.writeFile(uri, Buffer.from(content, "utf-8"));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Output channel — set by extension.ts on activation to avoid circular imports
+// ──────────────────────────────────────────────────────────────────────────────
+
+let _outputChannel: vscode.OutputChannel | undefined;
+export function setOutputChannel(ch: vscode.OutputChannel): void {
+  _outputChannel = ch;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -120,21 +130,273 @@ interface _RawTypeInfo {
   performParams: Array<{ name: string; defaultValue: string }> | null;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Per-file incremental cache — survives across refreshes within a VS Code session
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface _FileScanPartial {
+  mtime: number;
+  behaviors: string[];
+  subtrees: Array<{ typePath: string; filePath: string }>;
+  controllers: Array<{ typePath: string; filePath: string }>;
+  rawBtJsonRefs: Array<{ typePath: string; relPath: string; dmFsPath: string }>;
+  rawTypeInfos: Array<{ typePath: string; info: _RawTypeInfo }>;
+  typeFilePaths: Record<string, string>;
+}
+const _fileCache = new Map<string, _FileScanPartial>();
+
+// Resolved .bt.json paths — keyed by DM typePath, only re-resolved when source file changes
+const _btJsonRefsCache = new Map<string, string>();
+
+// Which .dm files had BT content on the last scan — used to skip statting irrelevant files
+const _knownBtFilePaths = new Set<string>();
+
 // Only one scan may run at a time; callers that arrive while one is in-flight
 // get the same promise instead of spawning a second scan.
 let _activeScan: Promise<ScanResult> | null = null;
 
-export function scanAll(): Promise<ScanResult> {
+export function scanAll(forceRefresh = false): Promise<ScanResult> {
   if (_activeScan) return _activeScan;
-  _activeScan = _doScanAll().finally(() => {
+  _activeScan = _doScanAll(forceRefresh).finally(() => {
     _activeScan = null;
   });
   return _activeScan;
 }
 
-async function _doScanAll(): Promise<ScanResult> {
-  const files = await vscode.workspace.findFiles("**/*.dm", "**/node_modules/**");
+// ──────────────────────────────────────────────────────────────────────────────
+// Ripgrep-based BT file discovery
+// ──────────────────────────────────────────────────────────────────────────────
 
+function _getRgPath(): string {
+  const exe = process.platform === "win32" ? "rg.exe" : "rg";
+  return path.join(vscode.env.appRoot, "node_modules", "@vscode", "ripgrep", "bin", exe);
+}
+
+/** Returns absolute fsPaths of .dm files that contain a BT type declaration. */
+async function _findBtDmFiles(): Promise<string[] | null> {
+  const roots = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath);
+  if (!roots || roots.length === 0) return null;
+
+  return new Promise((resolve) => {
+    const args = [
+      "--files-with-matches",
+      "--glob",
+      "**/*.dm",
+      "--glob",
+      "!**/node_modules/**",
+      "/datum/(bt_node|ai_controller)/",
+      ...roots,
+    ];
+    const proc = cp.spawn(_getRgPath(), args, { stdio: ["ignore", "pipe", "ignore"] });
+    const lines: string[] = [];
+    proc.stdout.on("data", (chunk: Buffer) =>
+      lines.push(...chunk.toString("utf8").split("\n").filter(Boolean)),
+    );
+    proc.on("close", () => resolve(lines));
+    proc.on("error", () => resolve(null)); // null = fall back to findFiles
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Bounded-concurrency file reader
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function _readFilesInBatches(
+  uris: vscode.Uri[],
+  concurrency = 20,
+): Promise<Array<{ fsPath: string; text: string } | null>> {
+  const results: Array<{ fsPath: string; text: string } | null> = new Array(uris.length).fill(null);
+  let idx = 0;
+  async function worker() {
+    while (idx < uris.length) {
+      const i = idx++;
+      try {
+        const bytes = await vscode.workspace.fs.readFile(uris[i]);
+        results[i] = { fsPath: uris[i].fsPath, text: Buffer.from(bytes).toString("utf8") };
+      } catch {
+        results[i] = null;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, uris.length) }, worker));
+  return results;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Main scan
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
+  const log = (msg: string) => _outputChannel?.appendLine(msg);
+  const yield_ = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+  // Phase 0: Find BT-relevant .dm files via ripgrep; fall back to findFiles if unavailable.
+  const t0 = Date.now();
+  const BT_QUICK_CHECK = /\/datum\/(?:bt_node|ai_controller)\//;
+  let allDmUris: vscode.Uri[];
+  let usedRipgrep = false;
+
+  const rgPaths = await _findBtDmFiles();
+  if (rgPaths !== null) {
+    allDmUris = rgPaths.map((p) => vscode.Uri.file(p));
+    usedRipgrep = true;
+    log(`[scan] ripgrep: ${allDmUris.length} relevant .dm files in ${Date.now() - t0}ms`);
+  } else {
+    allDmUris = await vscode.workspace.findFiles("**/*.dm", "**/node_modules/**");
+    log(`[scan] discover (rg unavailable): ${allDmUris.length} .dm files in ${Date.now() - t0}ms`);
+  }
+
+  // Phase 1: Stat pass — only stat BT-known files + brand-new files when using fallback.
+  // When ripgrep succeeded allDmUris is already small, so stat everything.
+  // forceRefresh stats everything regardless (catches newly added BT content in any file).
+  const t1 = Date.now();
+  const allPartials: (_FileScanPartial | null)[] = new Array(allDmUris.length).fill(null);
+  const toStatIndices: number[] = [];
+
+  for (let i = 0; i < allDmUris.length; i++) {
+    const fsPath = allDmUris[i].fsPath;
+    if (!usedRipgrep && !forceRefresh && _fileCache.has(fsPath) && !_knownBtFilePaths.has(fsPath)) {
+      // Fallback path only: known non-BT file — reuse cached empty partial without statting
+      allPartials[i] = _fileCache.get(fsPath)!;
+    } else {
+      toStatIndices.push(i);
+    }
+  }
+
+  // Build mtime map keyed by allDmUris index to avoid index aliasing bugs
+  const mtimeByIdx = new Map<number, number>();
+  await Promise.all(
+    toStatIndices.map(async (i) => {
+      try {
+        const s = await vscode.workspace.fs.stat(allDmUris[i]);
+        mtimeByIdx.set(i, s.mtime);
+      } catch {
+        mtimeByIdx.set(i, -1);
+      }
+    }),
+  );
+
+  const missUris: vscode.Uri[] = [];
+  const missIndices: number[] = [];
+
+  for (const i of toStatIndices) {
+    const uri = allDmUris[i];
+    const mtime = mtimeByIdx.get(i)!;
+    const cached = _fileCache.get(uri.fsPath);
+    if (cached && cached.mtime === mtime) {
+      allPartials[i] = cached;
+    } else {
+      missUris.push(uri);
+      missIndices.push(i);
+    }
+  }
+  const skipped = allDmUris.length - toStatIndices.length;
+  const hits = toStatIndices.length - missUris.length;
+  log(
+    `[scan] stat: ${toStatIndices.length} checked (${skipped} skipped), ${missUris.length} miss / ${hits} hit in ${Date.now() - t1}ms`,
+  );
+
+  // Phase 2: Read cache-miss files with bounded concurrency
+  const t2 = Date.now();
+  const fileTexts = await _readFilesInBatches(missUris, 20);
+  log(`[scan] read: ${missUris.length} files in ${Date.now() - t2}ms`);
+
+  // Phase 3: Parse cache-miss files
+  const t3 = Date.now();
+  let parsedCount = 0;
+  let totalBehaviors = 0;
+  let totalSubtrees = 0;
+  let totalControllers = 0;
+
+  for (let k = 0; k < fileTexts.length; k++) {
+    const entry = fileTexts[k];
+    const i = missIndices[k];
+    const mtime = mtimeByIdx.get(i)!;
+
+    if (!entry) {
+      allPartials[i] = {
+        mtime,
+        behaviors: [],
+        subtrees: [],
+        controllers: [],
+        rawBtJsonRefs: [],
+        rawTypeInfos: [],
+        typeFilePaths: {},
+      };
+      continue;
+    }
+
+    const { fsPath, text } = entry;
+
+    // Fallback path: skip files that don't contain BT declarations
+    if (!usedRipgrep && !BT_QUICK_CHECK.test(text)) {
+      allPartials[i] = { mtime, behaviors: [], subtrees: [], controllers: [], rawBtJsonRefs: [], rawTypeInfos: [], typeFilePaths: {} };
+      _fileCache.set(fsPath, allPartials[i]!);
+      continue;
+    }
+
+    const partial: _FileScanPartial = {
+      mtime,
+      behaviors: [],
+      subtrees: [],
+      controllers: [],
+      rawBtJsonRefs: [],
+      rawTypeInfos: [],
+      typeFilePaths: {},
+    };
+
+    let m: RegExpExecArray | null;
+
+    const behaviorRe = /^\/datum\/bt_node\/ai_behavior\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
+    while ((m = behaviorRe.exec(text)) !== null) {
+      partial.behaviors.push(m[0].trim());
+    }
+
+    const subtreeRe = /^\/datum\/bt_node\/subtree\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
+    while ((m = subtreeRe.exec(text)) !== null) {
+      partial.subtrees.push({ typePath: m[0].trim(), filePath: fsPath });
+    }
+
+    const controllerRe = /^\/datum\/ai_controller\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
+    while ((m = controllerRe.exec(text)) !== null) {
+      partial.controllers.push({ typePath: m[0].trim(), filePath: fsPath });
+    }
+
+    const fileRawRefs = new Map<string, { relPath: string; dmFsPath: string }>();
+    await _parseBtJsonRefs(text, fileRawRefs, fsPath, yield_);
+    for (const [typePath, { relPath, dmFsPath }] of fileRawRefs) {
+      partial.rawBtJsonRefs.push({ typePath, relPath, dmFsPath });
+    }
+
+    const fileAllTypes = new Map<string, _RawTypeInfo>();
+    await _parseTypeVarsFromText(text, fileAllTypes, fsPath, partial.typeFilePaths, yield_);
+    for (const [typePath, info] of fileAllTypes) {
+      partial.rawTypeInfos.push({ typePath, info });
+    }
+
+    // Ensure regex-found types appear in typeFilePaths even if the line parser missed them
+    for (const b of partial.behaviors) {
+      if (!(b in partial.typeFilePaths)) partial.typeFilePaths[b] = fsPath;
+    }
+    for (const s of partial.subtrees) {
+      if (!(s.typePath in partial.typeFilePaths)) partial.typeFilePaths[s.typePath] = fsPath;
+    }
+    for (const c of partial.controllers) {
+      if (!(c.typePath in partial.typeFilePaths)) partial.typeFilePaths[c.typePath] = fsPath;
+    }
+
+    _fileCache.set(fsPath, partial);
+    allPartials[i] = partial;
+    parsedCount++;
+    totalBehaviors += partial.behaviors.length;
+    totalSubtrees += partial.subtrees.length;
+    totalControllers += partial.controllers.length;
+  }
+  log(
+    `[scan] parse: ${parsedCount} files — behaviors:${totalBehaviors} subtrees:${totalSubtrees} controllers:${totalControllers} in ${Date.now() - t3}ms`,
+  );
+
+  // Merge all partials into shared accumulators
   const behaviorSet = new Set<string>();
   const seenSubtrees = new Set<string>();
   const seenControllers = new Set<string>();
@@ -154,86 +416,97 @@ async function _doScanAll(): Promise<ScanResult> {
   }> = [];
   const allTypes = new Map<string, _RawTypeInfo>();
   const typeFilePaths: Record<string, string> = {};
-
-  // typePath → { relPath, dmFsPath } — resolved to absolute after the loop
   const rawBtJsonRefs = new Map<string, { relPath: string; dmFsPath: string }>();
-  // typePath → resolved absolute path of the .bt.json file
-  const btJsonRefs = new Map<string, string>();
 
-  // 1. Read all .dm files in parallel
-  const fileTexts = await Promise.all(
-    files.map(async (uri) => {
-      try {
-        const bytes = await vscode.workspace.fs.readFile(uri);
-        return { fsPath: uri.fsPath, text: Buffer.from(bytes).toString("utf8") };
-      } catch {
-        return null;
+  for (const partial of allPartials) {
+    if (!partial) continue;
+    for (const b of partial.behaviors) behaviorSet.add(b);
+    for (const s of partial.subtrees) {
+      if (!seenSubtrees.has(s.typePath)) {
+        seenSubtrees.add(s.typePath);
+        subtrees.push({ typePath: s.typePath, filePath: s.filePath });
       }
-    }),
-  );
-
-  // 2. Parse all files
-  const BT_QUICK_CHECK = /\/datum\/(?:bt_node|ai_controller)\//;
-  const yield_ = () => new Promise<void>((resolve) => setImmediate(resolve));
-  let parsed = 0;
-  for (const entry of fileTexts) {
-    if (!entry) continue;
-    const { fsPath, text } = entry;
-    if (!BT_QUICK_CHECK.test(text)) continue;
-    let m: RegExpExecArray | null;
-
-    const behaviorRe = /^\/datum\/bt_node\/ai_behavior\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
-    while ((m = behaviorRe.exec(text)) !== null) {
-      const tp = m[0].trim();
-      behaviorSet.add(tp);
-      if (!(tp in typeFilePaths)) typeFilePaths[tp] = fsPath;
     }
-
-    const subtreeRe = /^\/datum\/bt_node\/subtree\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
-    while ((m = subtreeRe.exec(text)) !== null) {
-      const tp = m[0].trim();
-      if (!seenSubtrees.has(tp)) {
-        seenSubtrees.add(tp);
-        subtrees.push({ typePath: tp, filePath: fsPath });
+    for (const c of partial.controllers) {
+      if (!seenControllers.has(c.typePath)) {
+        seenControllers.add(c.typePath);
+        controllers.push({ typePath: c.typePath, filePath: c.filePath });
       }
-      if (!(tp in typeFilePaths)) typeFilePaths[tp] = fsPath;
     }
-
-    const controllerRe = /^\/datum\/ai_controller\/[\w/]+(?=\s*(?:\/\/.*)?$)/gm;
-    while ((m = controllerRe.exec(text)) !== null) {
-      const tp = m[0].trim();
-      if (!seenControllers.has(tp)) {
-        seenControllers.add(tp);
-        controllers.push({ typePath: tp, filePath: fsPath });
+    for (const ref of partial.rawBtJsonRefs) {
+      if (!rawBtJsonRefs.has(ref.typePath)) {
+        rawBtJsonRefs.set(ref.typePath, { relPath: ref.relPath, dmFsPath: ref.dmFsPath });
       }
-      if (!(tp in typeFilePaths)) typeFilePaths[tp] = fsPath;
     }
-
-    _parseBtJsonRefs(text, rawBtJsonRefs, fsPath);
-    _parseTypeVarsFromText(text, allTypes, fsPath, typeFilePaths);
-
-    if (++parsed % 10 === 0) await yield_();
+    for (const { typePath, info } of partial.rawTypeInfos) {
+      if (!allTypes.has(typePath)) {
+        allTypes.set(typePath, info);
+      } else {
+        // Merge split-file declarations: copy vars/params not yet seen
+        const existing = allTypes.get(typePath)!;
+        for (const [name, val] of info.ownVars) {
+          if (!existing.ownVars.has(name)) existing.ownVars.set(name, val);
+        }
+        if (existing.performParams === null && info.performParams !== null) {
+          existing.performParams = info.performParams;
+        }
+      }
+    }
+    // typeFilePaths: first-declaration wins
+    for (const [tp, fp] of Object.entries(partial.typeFilePaths)) {
+      if (!(tp in typeFilePaths)) typeFilePaths[tp] = fp;
+    }
   }
 
-  // 3. Resolve .bt.json paths in parallel — prefer DM-relative, fall back to workspace glob
-  await Promise.all(
-    [...rawBtJsonRefs.entries()].map(async ([typePath, { relPath, dmFsPath }]) => {
-      const absPath = path.resolve(path.dirname(dmFsPath), relPath);
-      try {
-        await vscode.workspace.fs.stat(vscode.Uri.file(absPath));
-        btJsonRefs.set(typePath, absPath);
-        return;
-      } catch {
-        /* not at DM-relative path — try workspace glob */
-      }
-      const found = await vscode.workspace.findFiles(relPath.replace(/\\/g, "/"), null, 1);
-      if (found[0]) btJsonRefs.set(typePath, found[0].fsPath);
-    }),
+  // Phase 4: Resolve .bt.json paths.
+  // Pre-fetch all .bt.json paths once, then resolve via exact set lookup or suffix match.
+  // _btJsonRefsCache persists across scans — only re-resolve entries whose source file changed.
+  const t4 = Date.now();
+  const missedFsPaths = new Set(missUris.map((u) => u.fsPath));
+
+  // Remove cache entries for changed/removed types
+  for (const [typePath] of _btJsonRefsCache) {
+    if (!rawBtJsonRefs.has(typePath)) _btJsonRefsCache.delete(typePath);
+  }
+  const toResolve = [...rawBtJsonRefs.entries()].filter(
+    ([typePath, { dmFsPath }]) => missedFsPaths.has(dmFsPath) || !_btJsonRefsCache.has(typePath),
   );
 
-  // 4. Attach jsonPath + bindings in parallel (direct hit or ancestor inheritance).
-  //    Binding reads are deduplicated: the same .bt.json is only read once even if
-  //    many subtypes inherit from the same parent.
+  if (toResolve.length > 0) {
+    // ONE findFiles call for all .bt.json files in the workspace
+    const allBtJsonUris = await vscode.workspace.findFiles("**/*.bt.json", "**/node_modules/**");
+    const btJsonAbsPaths = new Set(allBtJsonUris.map((u) => u.fsPath));
+    // Suffix-match fallback: basename → [absolute paths]
+    const btJsonBySuffix = new Map<string, string[]>();
+    for (const uri of allBtJsonUris) {
+      const base = path.basename(uri.fsPath);
+      const list = btJsonBySuffix.get(base);
+      if (list) list.push(uri.fsPath);
+      else btJsonBySuffix.set(base, [uri.fsPath]);
+    }
+
+    for (const [typePath, { relPath, dmFsPath }] of toResolve) {
+      _btJsonRefsCache.delete(typePath);
+      // Try DM-relative first (exact, no I/O)
+      const absPath = path.resolve(path.dirname(dmFsPath), relPath);
+      if (btJsonAbsPaths.has(absPath)) {
+        _btJsonRefsCache.set(typePath, absPath);
+        continue;
+      }
+      // Suffix match: find a known .bt.json whose path ends with the relative ref
+      const normalizedRel = relPath.replace(/\\/g, "/");
+      const candidates = btJsonBySuffix.get(path.basename(relPath)) ?? [];
+      const match = candidates.find((p) => p.replace(/\\/g, "/").endsWith(normalizedRel));
+      if (match) _btJsonRefsCache.set(typePath, match);
+    }
+  }
+
+  const btJsonRefs = _btJsonRefsCache;
+  log(
+    `[scan] btJsonRef resolve: ${toResolve.length} new / ${btJsonRefs.size} total in ${Date.now() - t4}ms`,
+  );
+
+  // Attach jsonPath + bindings in parallel (direct hit or ancestor inheritance).
   const bindingCache = new Map<string, Promise<BtBindingDeclarations | undefined>>();
   const cachedBindings = (jp: string) => {
     if (!bindingCache.has(jp)) bindingCache.set(jp, _readBtJsonBindings(jp));
@@ -265,13 +538,34 @@ async function _doScanAll(): Promise<ScanResult> {
     }),
   );
 
+  // Phase 5: Type var resolution
+  const t5 = Date.now();
   const typeVars: Record<string, TypeVarsEntry> = {};
+  let typeVarCount = 0;
   for (const [typePath] of allTypes) {
     const isBehavior = /^\/datum\/bt_node\/ai_behavior\//.test(typePath);
     const isDecorator = /^\/datum\/bt_node\/decorator\//.test(typePath);
     if (!isBehavior && !isDecorator) continue;
     const stopAt = isBehavior ? "/datum/bt_node/ai_behavior" : "/datum/bt_node/decorator";
     typeVars[typePath] = _resolveTypeVars(typePath, allTypes, stopAt);
+    typeVarCount++;
+  }
+  log(`[scan] typeVar chain: ${typeVarCount} entries in ${Date.now() - t5}ms`);
+  log(`[scan] total: ${Date.now() - t0}ms`);
+
+  // Update known-BT set so the next scan skips non-BT files without statting them
+  _knownBtFilePaths.clear();
+  for (let i = 0; i < allDmUris.length; i++) {
+    const partial = allPartials[i];
+    if (
+      partial &&
+      (partial.behaviors.length > 0 ||
+        partial.subtrees.length > 0 ||
+        partial.controllers.length > 0 ||
+        partial.rawBtJsonRefs.length > 0)
+    ) {
+      _knownBtFilePaths.add(allDmUris[i].fsPath);
+    }
   }
 
   return {
@@ -313,14 +607,18 @@ async function _readBtJsonBindings(jsonPath: string): Promise<BtBindingDeclarati
 // behavior_tree_json reference scanner
 // ──────────────────────────────────────────────────────────────────────────────
 
-function _parseBtJsonRefs(
+async function _parseBtJsonRefs(
   text: string,
   btJsonRefs: Map<string, { relPath: string; dmFsPath: string }>,
   dmFsPath: string,
-): void {
+  yield_: () => Promise<void>,
+): Promise<void> {
   let currentType: string | null = null;
+  let lineCount = 0;
 
   for (const rawLine of text.split(/\r?\n/)) {
+    if (++lineCount % 500 === 0) await yield_();
+
     // Column-0 type declaration
     if (rawLine.startsWith("/datum/")) {
       const typeM = rawLine.match(/^(\/datum\/(?:[\w]+\/)*[\w]+)\s*(?:\/\/.*)?$/);
@@ -355,15 +653,17 @@ function _parseBtJsonRefs(
 // Type-var scanner
 // ──────────────────────────────────────────────────────────────────────────────
 
-function _parseTypeVarsFromText(
+async function _parseTypeVarsFromText(
   text: string,
   allTypes: Map<string, _RawTypeInfo>,
   filePath = "",
   typeFilePaths: Record<string, string> = {},
-): void {
+  yield_: () => Promise<void> = () => Promise.resolve(),
+): Promise<void> {
   let currentType: string | null = null;
   let currentIsBehavior = false;
   let pendingVar: { name: string; accum: string; depth: number } | null = null;
+  let lineCount = 0;
 
   const finalizePendingVar = () => {
     if (!pendingVar || !currentType) return;
@@ -374,6 +674,8 @@ function _parseTypeVarsFromText(
   };
 
   for (const rawLine of text.split(/\r?\n/)) {
+    if (++lineCount % 200 === 0) await yield_();
+
     // If we're accumulating a multi-line list value, keep collecting until parens balance
     if (pendingVar) {
       for (const ch of rawLine) {
@@ -563,3 +865,8 @@ function _resolveTypeVars(
   // Decorators: no perform params, only ownVars
   return { params: [], vars: _resolveOwnVarsChain(typePath, allTypes, stopAt) };
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Deploy: generate DM behavior_nodes block from a .bt.json file
+// ──────────────────────────────────────────────────────────────────────────────
+

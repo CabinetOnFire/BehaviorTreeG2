@@ -1,8 +1,11 @@
 import * as vscode from "vscode";
 import { BtEditorPanel, BtEditorProvider } from "./btEditorPanel";
 import { BtBrowserProvider, BtTreeItem } from "./btBrowserProvider";
+import { setOutputChannel } from "./fileSync";
 
 export function activate(context: vscode.ExtensionContext) {
+  setOutputChannel(BtEditorPanel.outputChannel);
+
   const browserProvider = new BtBrowserProvider(context);
 
   // Wire scan results from the editor panel into the sidebar browser.
