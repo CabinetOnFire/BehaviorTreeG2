@@ -155,60 +155,13 @@ interface _FieldSpec {
   unbindNode: (restored: string) => BtNode;
 }
 
-function buildLeafSpecs(
-  node: Extract<BtNode, { kind: "leaf" }>,
-  params: Array<{ name: string; defaultValue: string }>,
+function buildVarsSpecs(
+  node: Extract<BtNode, { kind: "leaf" | "decorator" }>,
   varDecls: Array<{ name: string; defaultValue: string }>,
 ): _FieldSpec[] {
-  const specs: _FieldSpec[] = [];
-
-  for (let i = 0; i < params.length; i++) {
-    const p = params[i];
-    const idx = i;
-    const applyArgs = (val: string) => {
-      const newArgs = params.map((_, j) => (j === idx ? val : (node.args[j] ?? "")));
-      while (newArgs.length > 0 && newArgs[newArgs.length - 1] === "") newArgs.pop();
-      return newArgs;
-    };
-    specs.push({
-      key: `param:${p.name}`,
-      name: p.name,
-      defaultValue: p.defaultValue,
-      value: node.args[idx] ?? "",
-      updateNode: (val) => ({ ...node, args: applyArgs(val) }),
-      bindNode: (bindName) => ({ ...node, args: applyArgs(`$${bindName}`) }),
-      unbindNode: (restored) => ({ ...node, args: applyArgs(restored) }),
-    });
-  }
-
-  for (const v of varDecls) {
-    const vname = v.name;
-    const applyVars = (val: string) => {
-      const newVars = { ...(node.vars ?? {}), [vname]: val };
-      if (val === "") delete newVars[vname];
-      return Object.keys(newVars).length > 0 ? newVars : undefined;
-    };
-    specs.push({
-      key: `var:${vname}`,
-      name: vname,
-      defaultValue: v.defaultValue,
-      value: node.vars?.[vname] ?? "",
-      updateNode: (val) => ({ ...node, vars: applyVars(val) }),
-      bindNode: (bindName) => ({ ...node, vars: { ...(node.vars ?? {}), [vname]: `$${bindName}` } }),
-      unbindNode: (restored) => ({ ...node, vars: applyVars(restored) }),
-    });
-  }
-
-  return specs;
-}
-
-function buildDecoratorSpecs(
-  node: Extract<BtNode, { kind: "decorator" }>,
-  varDecls: Array<{ name: string; defaultValue: string }>,
-): _FieldSpec[] {
-  const configValues: Record<string, string> = {};
-  for (const [k, v] of Object.entries(node.config)) {
-    configValues[k] = Array.isArray(v) ? v.join(", ") : v;
+  const flatValues: Record<string, string> = {};
+  for (const [k, v] of Object.entries(node.vars)) {
+    flatValues[k] = Array.isArray(v) ? v.join(", ") : v;
   }
 
   const applyConfig = (values: Record<string, string>): Record<string, string | string[]> => {
@@ -230,14 +183,14 @@ function buildDecoratorSpecs(
       key,
       name: v.name,
       defaultValue: v.defaultValue,
-      value: configValues[key] ?? "",
-      updateNode: (val) => ({ ...node, config: applyConfig({ ...configValues, [key]: val }) }),
-      bindNode: (bindName) => ({ ...node, config: { ...node.config, [key]: `$${bindName}` } }),
+      value: flatValues[key] ?? "",
+      updateNode: (val) => ({ ...node, vars: applyConfig({ ...flatValues, [key]: val }) }),
+      bindNode: (bindName) => ({ ...node, vars: { ...node.vars, [key]: `$${bindName}` } }),
       unbindNode: (restored) => {
         const restoredVal: string | string[] = restored.includes(",")
           ? restored.split(",").map((s) => s.trim()).filter(Boolean)
           : restored;
-        return { ...node, config: { ...node.config, [key]: restoredVal } };
+        return { ...node, vars: { ...node.vars, [key]: restoredVal } };
       },
     };
   });
@@ -260,42 +213,28 @@ function TypedNodeConfig({
   typeVars: Record<string, { params: Array<{ name: string; defaultValue: string }>; vars: Array<{ name: string; defaultValue: string }> }> | null;
   activeSubtreeBindings: BtBindingDeclarations | undefined;
 }) {
-  const isLeaf = node.kind === "leaf";
-  const typePath = isLeaf ? node.behaviorType : node.nodeType;
-  const label = isLeaf ? "Behavior Type" : "Decorator Type";
+  const typePath = node.kind === "leaf" ? node.behaviorType : node.nodeType;
+  const label = node.kind === "leaf" ? "Behavior Type" : "Decorator Type";
   const entry = typeVars?.[typePath];
-  const params = isLeaf ? (entry?.params ?? []) : [];
   const varDecls = entry?.vars ?? [];
-
-  const specs = isLeaf
-    ? buildLeafSpecs(node as Extract<BtNode, { kind: "leaf" }>, params, varDecls)
-    : buildDecoratorSpecs(node as Extract<BtNode, { kind: "decorator" }>, varDecls);
+  const specs = buildVarsSpecs(node, varDecls);
 
   const [fallbackText, setFallbackText] = useState(() =>
-    isLeaf
-      ? (node as Extract<BtNode, { kind: "leaf" }>).args.join("\n")
-      : Object.entries((node as Extract<BtNode, { kind: "decorator" }>).config)
-          .map(([k, v]) => `${k} = ${Array.isArray(v) ? v.join(", ") : v}`)
-          .join("\n"),
+    Object.entries(node.vars)
+      .map(([k, v]) => `${k} = ${Array.isArray(v) ? v.join(", ") : v}`)
+      .join("\n"),
   );
 
   const commitFallback = () => {
-    if (isLeaf) {
-      onUpdate({
-        ...node,
-        args: fallbackText.split("\n").map((s) => s.trim()).filter(Boolean),
-      } as BtNode);
-    } else {
-      const parsed: Record<string, string | string[]> = {};
-      for (const line of fallbackText.split("\n")) {
-        const eq = line.indexOf("=");
-        if (eq === -1) continue;
-        const k = line.slice(0, eq).trim();
-        const v = line.slice(eq + 1).trim();
-        parsed[k] = v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : v;
-      }
-      onUpdate({ ...node, config: parsed } as BtNode);
+    const parsed: Record<string, string | string[]> = {};
+    for (const line of fallbackText.split("\n")) {
+      const eq = line.indexOf("=");
+      if (eq === -1) continue;
+      const k = line.slice(0, eq).trim();
+      const v = line.slice(eq + 1).trim();
+      parsed[k] = v.includes(",") ? v.split(",").map((s) => s.trim()).filter(Boolean) : v;
     }
+    onUpdate({ ...node, vars: parsed } as BtNode);
   };
 
   const fallbackHint = typeVars === null
@@ -319,14 +258,14 @@ function TypedNodeConfig({
       ) : (
         <>
           <FieldLabel>
-            {isLeaf ? "Args (one per line)" : "Config (key = value, one per line)"}
+            Vars (key = value, one per line)
             <HintText>{fallbackHint}</HintText>
           </FieldLabel>
           <textarea
             value={fallbackText}
             onChange={(e) => setFallbackText(e.target.value)}
             onBlur={commitFallback}
-            rows={isLeaf ? 5 : 6}
+            rows={6}
             style={textAreaStyle}
           />
         </>

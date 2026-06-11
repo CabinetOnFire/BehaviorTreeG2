@@ -66,11 +66,11 @@ function nodeSize(btNode: BtNode): { width: number; height: number } {
   const W = 220;
   switch (btNode.kind) {
     case "leaf": {
-      const n = btNode.args.length;
+      const n = Object.keys(btNode.vars).length;
       return { width: W, height: n > 0 ? 34 + n * 18 : 52 };
     }
     case "decorator": {
-      const n = Object.keys(btNode.config).length;
+      const n = Object.keys(btNode.vars).length;
       return { width: W, height: 36 + (n > 0 ? n * 18 + 4 : 0) };
     }
     case "parallel":
@@ -116,11 +116,11 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
       return data;
     }
     case "leaf":
-      return { behaviorType: btNode.behaviorType, args: btNode.args, vars: btNode.vars };
+      return { behaviorType: btNode.behaviorType, vars: btNode.vars };
     case "subtree":
       return { behaviorType: btNode.behaviorType };
     case "decorator":
-      return { nodeType: btNode.nodeType, config: btNode.config };
+      return { nodeType: btNode.nodeType, vars: btNode.vars };
   }
 }
 

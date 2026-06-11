@@ -52,29 +52,24 @@ function serializeNode(node: BtNode): JsonNode {
     }
 
     case "decorator": {
-      const config: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(node.config)) {
-        config[k] = configValueToJson(v);
+      const result: JsonNode = { type: "decorator", decorator: node.nodeType };
+      if (Object.keys(node.vars).length > 0) {
+        const varsOut: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(node.vars)) {
+          varsOut[k] = configValueToJson(v);
+        }
+        result["vars"] = varsOut;
       }
-      const result: JsonNode = {
-        type: "decorator",
-        decorator: node.nodeType,
-        config,
-      };
       if (node.child) result["child"] = serializeNode(node.child);
       return result;
     }
 
     case "leaf": {
-      const out: JsonNode = {
-        type: "leaf",
-        behavior: node.behaviorType,
-        args: node.args.map(stringToJsonScalar),
-      };
-      if (node.vars && Object.keys(node.vars).length > 0) {
+      const out: JsonNode = { type: "leaf", behavior: node.behaviorType };
+      if (Object.keys(node.vars).length > 0) {
         const varsOut: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(node.vars)) {
-          varsOut[k] = stringToJsonScalar(v);
+          varsOut[k] = configValueToJson(v);
         }
         out["vars"] = varsOut;
       }

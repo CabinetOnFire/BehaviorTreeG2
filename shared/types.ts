@@ -17,13 +17,13 @@ export type BtNode =
       loopDelay?: string;
       children: BtNode[];
     }
-  | { kind: "leaf"; behaviorType: string; args: string[]; vars?: Record<string, string> }
+  | { kind: "leaf"; behaviorType: string; vars: Record<string, string | string[]> }
   | { kind: "subtree"; behaviorType: string; overrideId?: string; bindings?: Record<string, string> }
   | {
       kind: "decorator";
       nodeType: string;
       child?: BtNode;
-      config: Record<string, string | string[]>;
+      vars: Record<string, string | string[]>;
     };
 
 export interface SubtreeDescriptor {

@@ -6,7 +6,7 @@ import { shortTypePath } from "../../utils/typeDisplay";
 
 interface DecoratorNodeData {
   nodeType?: string;
-  config?: Record<string, string | string[]>;
+  vars?: Record<string, string | string[]>;
   childIndex?: number | null;
 }
 
@@ -15,7 +15,7 @@ export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
   const resolveBinding = useResolveBinding();
   const shortName = data.nodeType ? shortTypePath(data.nodeType) : "(decorator)";
   const params = typeVars?.[data.nodeType ?? ""]?.vars ?? [];
-  const config = data.config ?? {};
+  const config = data.vars ?? {};
 
   type Row = { key: string; value: string; isDefault: boolean };
   const rows: Row[] = [];
@@ -63,9 +63,15 @@ export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
             marginBottom: rows.length > 0 ? 3 : 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
           }}
           title={data.nodeType}
         >
+          {config.invert === "TRUE" && (
+            <span style={{ color: "#f44336", flexShrink: 0 }}>!</span>
+          )}
           {shortName}
         </div>
         {rows.map((row) => (

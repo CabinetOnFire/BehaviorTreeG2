@@ -72,9 +72,9 @@ export function setOutputChannel(ch: vscode.OutputChannel): void {
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface TypeVarsEntry {
-  /** Positional params from perform() — map to args[] in the leaf node. */
+  /** Positional params from perform() — retained for scanning but not used in the editor. */
   params: Array<{ name: string; defaultValue: string }>;
-  /** Declared vars on the type — map to vars{} in the leaf node. */
+  /** Declared vars on the type — map to config{} in the leaf/decorator node. */
   vars: Array<{ name: string; defaultValue: string }>;
 }
 

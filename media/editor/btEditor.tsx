@@ -218,14 +218,14 @@ function BtEditorInner() {
           newNode = {
             kind: "leaf",
             behaviorType: behaviorType || "/datum/bt_node/ai_behavior/todo",
-            args: [],
+            vars: {},
           };
           break;
         case "decorator":
           newNode = {
             kind: "decorator",
             nodeType: decoratorType || "/datum/bt_node/decorator/todo",
-            config: {},
+            vars: {},
           };
           break;
         case "subplan":

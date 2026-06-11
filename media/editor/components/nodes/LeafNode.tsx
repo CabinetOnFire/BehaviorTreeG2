@@ -6,8 +6,7 @@ import { shortTypePath } from "../../utils/typeDisplay";
 
 interface LeafNodeData {
   behaviorType?: string;
-  args?: string[];
-  vars?: Record<string, string>;
+  vars?: Record<string, string | string[]>;
   childIndex?: number | null;
 }
 
@@ -15,36 +14,24 @@ export function LeafNode({ data }: { data: LeafNodeData }) {
   const typeVars = useTypeVars();
   const resolveBinding = useResolveBinding();
   const short = data.behaviorType ? shortTypePath(data.behaviorType) : "(leaf)";
+  const varDecls = typeVars?.[data.behaviorType ?? ""]?.vars ?? [];
+  const config = data.vars ?? {};
 
-  const entryParams = typeVars?.[data.behaviorType ?? ""]?.params ?? [];
-  const entryVars = typeVars?.[data.behaviorType ?? ""]?.vars ?? [];
-  const args = data.args ?? [];
-  const vars = data.vars ?? {};
-
-  type Row = { name: string; value: string; isDefault: boolean };
+  type Row = { key: string; value: string; isDefault: boolean };
   const rows: Row[] = [];
 
-  if (entryParams.length > 0 || entryVars.length > 0) {
-    for (let i = 0; i < entryParams.length; i++) {
-      const arg = args[i];
-      const def = entryParams[i].defaultValue;
-      if (arg !== undefined) {
-        rows.push({ name: entryParams[i].name, value: lastSegment(resolveBinding(arg)), isDefault: false });
-      } else if (def !== "null") {
-        rows.push({ name: entryParams[i].name, value: def, isDefault: true });
-      }
-    }
-    for (const v of entryVars) {
-      const val = vars[v.name];
+  if (varDecls.length > 0) {
+    for (const v of varDecls) {
+      const val = config[v.name];
       if (val !== undefined) {
-        rows.push({ name: v.name, value: lastSegment(resolveBinding(val)), isDefault: false });
+        rows.push({ key: v.name, value: Array.isArray(val) ? `[${val.length}]` : lastSegment(resolveBinding(val)), isDefault: false });
       } else if (v.defaultValue !== "null") {
-        rows.push({ name: v.name, value: v.defaultValue, isDefault: true });
+        rows.push({ key: v.name, value: v.defaultValue, isDefault: true });
       }
     }
   } else {
-    for (let i = 0; i < args.length; i++) {
-      rows.push({ name: `arg${i + 1}`, value: lastSegment(resolveBinding(args[i])), isDefault: false });
+    for (const [k, v] of Object.entries(config)) {
+      rows.push({ key: k, value: Array.isArray(v) ? `[${v.length}]` : lastSegment(resolveBinding(v)), isDefault: false });
     }
   }
 
@@ -78,9 +65,9 @@ export function LeafNode({ data }: { data: LeafNodeData }) {
         >
           {short}
         </div>
-        {rows.map((row, i) => (
-          <div key={i} style={{ fontSize: 10, lineHeight: "18px", display: "flex", gap: 3 }}>
-            <span style={{ color: "#aaa", flexShrink: 0 }}>{row.name}</span>
+        {rows.map((row) => (
+          <div key={row.key} style={{ fontSize: 10, lineHeight: "18px", display: "flex", gap: 3 }}>
+            <span style={{ color: "#aaa", flexShrink: 0 }}>{row.key}</span>
             <span style={{ color: "#666" }}>=</span>
             <span
               style={{
@@ -90,6 +77,7 @@ export function LeafNode({ data }: { data: LeafNodeData }) {
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
+              title={row.value}
             >
               {row.value}
             </span>

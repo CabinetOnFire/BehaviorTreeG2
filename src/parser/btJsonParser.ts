@@ -60,36 +60,37 @@ function parseNode(obj: JsonObj): BtNode {
     }
 
     case "decorator": {
-      const config: Record<string, string | string[]> = {};
-      const rawConfig = (obj["config"] ?? {}) as JsonObj;
-      for (const [k, v] of Object.entries(rawConfig)) {
-        config[k] = configValueToNode(v);
+      const vars: Record<string, string | string[]> = {};
+      // "vars" is the new key; "config" is the old key — read either
+      const rawVars = (obj["vars"] ?? obj["config"] ?? {}) as JsonObj;
+      for (const [k, v] of Object.entries(rawVars)) {
+        vars[k] = configValueToNode(v);
       }
       const child = obj["child"] ? parseNode(obj["child"] as JsonObj) : undefined;
       return {
         kind: "decorator",
         nodeType: String(obj["decorator"] ?? ""),
         child,
-        config,
+        vars,
       };
     }
 
     case "leaf": {
-      const rawArgs = (obj["args"] as JsonVal[]) ?? [];
-      const args = rawArgs.map(scalarToString);
+      const vars: Record<string, string | string[]> = {};
       const rawVars = obj["vars"];
-      let vars: Record<string, string> | undefined;
       if (rawVars && typeof rawVars === "object" && !Array.isArray(rawVars)) {
-        vars = {};
         for (const [k, v] of Object.entries(rawVars as JsonObj)) {
-          vars[k] = scalarToString(v);
+          vars[k] = configValueToNode(v);
         }
+      } else if (Array.isArray(obj["args"])) {
+        // old positional args — migrate to numbered keys
+        const rawArgs = obj["args"] as JsonVal[];
+        rawArgs.forEach((v, i) => { vars[`arg${i + 1}`] = scalarToString(v); });
       }
       return {
         kind: "leaf",
         behaviorType: String(obj["behavior"] ?? ""),
-        args,
-        ...(vars && Object.keys(vars).length > 0 ? { vars } : {}),
+        vars,
       };
     }
 
