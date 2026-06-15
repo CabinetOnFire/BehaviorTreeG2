@@ -2,7 +2,7 @@
   "name": "behaviortreeg",
   "displayName": "BehaviorTreeG",
   "description": "Visual behavior tree editor for tgstation's implementation of behavior trees",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "icon": "media/bt-editor-logo.png",
   "license": "GPL-3.0",
   "publisher": "behaviortreeg",
@@ -54,11 +54,6 @@
         "command": "bt-editor.create-bt-json",
         "title": "Create New Behavior Tree JSON",
         "icon": "$(add)"
-      },
-      {
-        "command": "bt-editor.migrate-json",
-        "title": "BT Editor: Migrate All JSON to New Format",
-        "icon": "$(arrow-swap)"
       }
     ],
     "viewsContainers": {

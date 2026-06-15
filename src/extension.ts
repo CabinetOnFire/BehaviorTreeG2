@@ -2,8 +2,6 @@ import * as vscode from "vscode";
 import { BtEditorPanel, BtEditorProvider } from "./btEditorPanel";
 import { BtBrowserProvider, BtTreeItem } from "./btBrowserProvider";
 import { setOutputChannel } from "./fileSync";
-import { parseJsonFile } from "./parser/btJsonParser";
-import { serializeToJsonString } from "./serializer/btJsonSerializer";
 
 export function activate(context: vscode.ExtensionContext) {
   setOutputChannel(BtEditorPanel.outputChannel);
@@ -56,32 +54,6 @@ export function activate(context: vscode.ExtensionContext) {
       if (!item?.ref) return;
       await BtEditorPanel.createBtJsonForType(context, item.ref.filePath, item.ref.typePath);
       await browserProvider.doScan(BtEditorPanel.onScanComplete);
-    }),
-
-    vscode.commands.registerCommand("bt-editor.migrate-json", async () => {
-      const files = await vscode.workspace.findFiles("**/*.bt.json");
-      if (files.length === 0) {
-        vscode.window.showInformationMessage("No .bt.json files found in workspace.");
-        return;
-      }
-      let migrated = 0;
-      let failed = 0;
-      for (const uri of files) {
-        try {
-          const raw = await vscode.workspace.fs.readFile(uri);
-          const text = Buffer.from(raw).toString("utf-8");
-          const { root, dmType, bindings } = parseJsonFile(text);
-          const newText = serializeToJsonString(root, dmType, bindings);
-          if (newText !== text) {
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(newText, "utf-8"));
-            migrated++;
-          }
-        } catch {
-          failed++;
-        }
-      }
-      const msg = `Migrated ${migrated} of ${files.length} file(s) to new format.${failed > 0 ? ` ${failed} failed.` : ""}`;
-      vscode.window.showInformationMessage(msg);
     }),
 
     openView,

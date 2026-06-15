@@ -61,8 +61,7 @@ function parseNode(obj: JsonObj): BtNode {
 
     case "decorator": {
       const vars: Record<string, string | string[]> = {};
-      // "vars" is the new key; "config" is the old key — read either
-      const rawVars = (obj["vars"] ?? obj["config"] ?? {}) as JsonObj;
+      const rawVars = (obj["vars"] ?? {}) as JsonObj;
       for (const [k, v] of Object.entries(rawVars)) {
         vars[k] = configValueToNode(v);
       }
@@ -82,10 +81,6 @@ function parseNode(obj: JsonObj): BtNode {
         for (const [k, v] of Object.entries(rawVars as JsonObj)) {
           vars[k] = configValueToNode(v);
         }
-      } else if (Array.isArray(obj["args"])) {
-        // old positional args — migrate to numbered keys
-        const rawArgs = obj["args"] as JsonVal[];
-        rawArgs.forEach((v, i) => { vars[`arg${i + 1}`] = scalarToString(v); });
       }
       return {
         kind: "leaf",

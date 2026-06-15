@@ -42,7 +42,7 @@ export type PropSchema =
     };
 
 /**
- * Canonical property schemas for each composite node kind.
+ * Property schemas for each composite node kind.
  * To add a new configurable property, add one entry here —
  * the config panel, canvas display, parser, and serializer all
  * derive their behaviour from this table.

@@ -13,7 +13,7 @@ interface LeafNodeData {
 export function LeafNode({ data }: { data: LeafNodeData }) {
   const typeVars = useTypeVars();
   const resolveBinding = useResolveBinding();
-  const short = data.behaviorType ? shortTypePath(data.behaviorType) : "(leaf)";
+  const short = data.behaviorType ? shortTypePath(resolveBinding(data.behaviorType)) : "(leaf)";
   const varDecls = typeVars?.[data.behaviorType ?? ""]?.vars ?? [];
   const config = data.vars ?? {};
 

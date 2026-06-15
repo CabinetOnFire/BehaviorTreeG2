@@ -17,7 +17,8 @@ const STATIC_TILES = [
   { label: "Sequence", kind: "sequence", color: "#2196F3", icon: "→" },
   { label: "Parallel", kind: "parallel", color: "#9C27B0", icon: "⇉" },
   { label: "Subplan", kind: "subplan", color: "#FFB300", icon: "↺" },
-  { label: "Subtree", kind: "subtree", color: "#26C6DA", icon: "⬡" },
+  { label: "Overridable subtree", kind: "subtree", color: "#26C6DA", icon: "⬡" },
+  { label: "Bindable behavior", kind: "bindable-behavior", color: "#FF9800", icon: "⬡" },
 ];
 
 export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, controllerRefs, onOpen, onRevealType }: NodePaletteProps) {

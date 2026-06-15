@@ -219,6 +219,47 @@ function TypedNodeConfig({
   const varDecls = entry?.vars ?? [];
   const specs = buildVarsSpecs(node, varDecls);
 
+  const setTypePath = (val: string): BtNode =>
+    node.kind === "leaf" ? { ...node, behaviorType: val } : { ...node, nodeType: val };
+
+  const isTypeBound = typePath.startsWith("$");
+  const typeBindingId = isTypeBound ? typePath.slice(1) : null;
+  const typeBindingDecl = typeBindingId ? activeSubtreeBindings?.[typeBindingId] : undefined;
+
+  const [pendingTypeBind, setPendingTypeBind] = useState(false);
+  const [pendingTypeBindName, setPendingTypeBindName] = useState("");
+
+  const confirmTypeBind = (rawLabel: string) => {
+    const lbl = rawLabel.trim();
+    if (!lbl) { setPendingTypeBind(false); return; }
+    const id = generateBindingId();
+    const newBindings: BtBindingDeclarations = {
+      ...(activeSubtreeBindings ?? {}),
+      [id]: { label: lbl, default: typePath || "" },
+    };
+    onUpdateWithBindings(setTypePath(`$${id}`), newBindings);
+    setPendingTypeBind(false);
+  };
+
+  const removeTypeBinding = () => {
+    if (!typeBindingId) return;
+    const restored = typeBindingDecl?.default ?? "";
+    const newBindings = { ...(activeSubtreeBindings ?? {}) };
+    delete newBindings[typeBindingId];
+    onUpdateWithBindings(
+      setTypePath(restored),
+      Object.keys(newBindings).length > 0 ? newBindings : undefined,
+    );
+  };
+
+  const updateTypeBindingDefault = (newDefault: string) => {
+    if (!typeBindingDecl || !typeBindingId) return;
+    onUpdateWithBindings(node, {
+      ...(activeSubtreeBindings ?? {}),
+      [typeBindingId]: { ...typeBindingDecl, default: newDefault },
+    });
+  };
+
   const [fallbackText, setFallbackText] = useState(() =>
     Object.entries(node.vars)
       .map(([k, v]) => `${k} = ${Array.isArray(v) ? v.join(", ") : v}`)
@@ -246,8 +287,60 @@ function TypedNodeConfig({
   return (
     <div>
       <FieldLabel>{label}</FieldLabel>
-      <TypePathLabel>{typePath}</TypePathLabel>
-      {specs.length > 0 ? (
+      {isTypeBound && typeBindingId ? (
+        <BoundArgRow
+          bindingId={typeBindingId}
+          bindingDecl={typeBindingDecl}
+          onRenameLabel={(id, newLabel) => onRenameBinding(id, newLabel)}
+          onRemove={removeTypeBinding}
+          onDefaultChange={updateTypeBindingDefault}
+        />
+      ) : pendingTypeBind ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 4 }}>
+          <div style={{ opacity: 0.6, fontSize: 10 }}>Binding slot name:</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            <input
+              autoFocus
+              value={pendingTypeBindName}
+              onChange={(e) => setPendingTypeBindName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmTypeBind(pendingTypeBindName);
+                if (e.key === "Escape") setPendingTypeBind(false);
+              }}
+              onBlur={() => confirmTypeBind(pendingTypeBindName)}
+              placeholder="slot name"
+              style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }}
+            />
+            <button
+              onMouseDown={(e) => { e.preventDefault(); setPendingTypeBind(false); }}
+              style={smallButtonStyle}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 4, alignItems: "flex-start" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <TypePathLabel>{typePath}</TypePathLabel>
+          </div>
+          <button
+            onClick={() => {
+              setPendingTypeBind(true);
+              setPendingTypeBindName(node.kind === "leaf" ? "behavior_slot" : "decorator_slot");
+            }}
+            title="Make this type a binding slot"
+            style={{ ...smallButtonStyle, opacity: 0.5 }}
+          >
+            ⬡
+          </button>
+        </div>
+      )}
+      {isTypeBound ? (
+        <div style={{ opacity: 0.6, fontSize: 10, fontStyle: "italic", marginTop: 4 }}>
+          Type is bound — its value is supplied by the binding override.
+        </div>
+      ) : specs.length > 0 ? (
         <TypedFieldRows
           specs={specs}
           onUpdate={onUpdate}

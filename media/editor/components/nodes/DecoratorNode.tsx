@@ -13,7 +13,7 @@ interface DecoratorNodeData {
 export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
   const typeVars = useTypeVars();
   const resolveBinding = useResolveBinding();
-  const shortName = data.nodeType ? shortTypePath(data.nodeType) : "(decorator)";
+  const shortName = data.nodeType ? shortTypePath(resolveBinding(data.nodeType)) : "(decorator)";
   const params = typeVars?.[data.nodeType ?? ""]?.vars ?? [];
   const config = data.vars ?? {};
 

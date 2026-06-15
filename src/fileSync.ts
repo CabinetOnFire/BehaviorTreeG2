@@ -74,7 +74,7 @@ export function setOutputChannel(ch: vscode.OutputChannel): void {
 export interface TypeVarsEntry {
   /** Positional params from perform() — retained for scanning but not used in the editor. */
   params: Array<{ name: string; defaultValue: string }>;
-  /** Declared vars on the type — map to config{} in the leaf/decorator node. */
+  /** Declared vars on the type — map to vars{} in the leaf/decorator node. */
   vars: Array<{ name: string; defaultValue: string }>;
 }
 
@@ -99,7 +99,7 @@ export interface ScanResult {
   typeFilePaths: Record<string, string>;
 }
 
-// This is where we keep nodes the editor shouldnt edit.
+// This is where we keep nodes the editor shouldnt edit. maybe we can improve this later by marking them up on the DM side in the future?
 const STRUCTURAL_VARS = new Set([
   "children",
   "child",
@@ -123,6 +123,7 @@ const STRUCTURAL_VARS = new Set([
   "last_poll_result",
   "is_polled",
   "node_type",
+  "failed_last_perform",
 ]);
 
 interface _RawTypeInfo {
@@ -330,7 +331,15 @@ async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
 
     // Fallback path: skip files that don't contain BT declarations
     if (!usedRipgrep && !BT_QUICK_CHECK.test(text)) {
-      allPartials[i] = { mtime, behaviors: [], subtrees: [], controllers: [], rawBtJsonRefs: [], rawTypeInfos: [], typeFilePaths: {} };
+      allPartials[i] = {
+        mtime,
+        behaviors: [],
+        subtrees: [],
+        controllers: [],
+        rawBtJsonRefs: [],
+        rawTypeInfos: [],
+        typeFilePaths: {},
+      };
       _fileCache.set(fsPath, allPartials[i]!);
       continue;
     }
@@ -865,8 +874,3 @@ function _resolveTypeVars(
   // Decorators: no perform params, only ownVars
   return { params: [], vars: _resolveOwnVarsChain(typePath, allTypes, stopAt) };
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Deploy: generate DM behavior_nodes block from a .bt.json file
-// ──────────────────────────────────────────────────────────────────────────────
-

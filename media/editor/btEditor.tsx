@@ -55,6 +55,7 @@ function BtEditorInner() {
     revealType,
     updateNode,
     updateNodeAndBindings,
+    updatePendingNode,
     renameBinding,
     clearSelection,
     relayout,
@@ -63,6 +64,7 @@ function BtEditorInner() {
     addPendingNode,
     clearPendingNodes,
     connectOrMove,
+    detachEdge,
     replaceNode,
     replaceRoot,
     copyNodes,
@@ -239,6 +241,9 @@ function BtEditorInner() {
         case "subtree":
           newNode = { kind: "subtree", behaviorType: subtreePath || "/datum/bt_node/subtree/todo" };
           break;
+        case "bindable-behavior":
+          newNode = { kind: "leaf", behaviorType: "", vars: {} };
+          break;
         default:
           return;
       }
@@ -261,6 +266,17 @@ function BtEditorInner() {
     [addPendingNode, replaceNode, screenToFlowPosition],
   );
 
+  // Alt-click a connector to detach the subtree below it.
+  const onEdgeClick = useCallback(
+    (e: React.MouseEvent, edge: Edge) => {
+      if (!e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      detachEdge(edge.id);
+    },
+    [detachEdge],
+  );
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (connection.source && connection.target) {
@@ -279,12 +295,14 @@ function BtEditorInner() {
     [connectOrMove],
   );
 
-  // Show config panel only for a single selected tree node (not root, not pending).
-  const selectedTreeNodes = state.nodes.filter(
-    (n) => n.selected && n.id !== ROOT_NODE_ID && !n.id.startsWith("pending-"),
+  // Show config panel for a single selected node — a tree node or a detached
+  // (pending) node. Root is never editable.
+  const selectedEditableNodes = state.nodes.filter(
+    (n) => n.selected && n.id !== ROOT_NODE_ID,
   );
-  const selectedNode = selectedTreeNodes.length === 1 ? selectedTreeNodes[0] : null;
+  const selectedNode = selectedEditableNodes.length === 1 ? selectedEditableNodes[0] : null;
   const selectedBtNode = selectedNode ? (selectedNode.data._btNode as BtNode) : null;
+  const selectedIsPending = selectedNode?.id.startsWith("pending-") ?? false;
 
   const activeSub = state.subtrees[state.activeIndex];
 
@@ -446,6 +464,7 @@ function BtEditorInner() {
                   onNodeDoubleClick={onNodeDoubleClick}
                   onNodeContextMenu={onNodeContextMenu}
                   onNodeDragStop={onNodeDragStop}
+                  onEdgeClick={onEdgeClick}
                   onPaneClick={onPaneClick}
                   fitView
                   panOnDrag={[1, 2]}
@@ -480,8 +499,16 @@ function BtEditorInner() {
             {selectedBtNode && selectedNode && (
               <NodeConfigPanel
                 node={{ ...selectedBtNode, id: selectedNode.id }}
-                onUpdate={(updated) => updateNode(selectedNode.id, updated)}
-                onUpdateWithBindings={(updated, bindings) => updateNodeAndBindings(selectedNode.id, updated, bindings)}
+                onUpdate={(updated) =>
+                  selectedIsPending
+                    ? updatePendingNode(selectedNode.id, updated)
+                    : updateNode(selectedNode.id, updated)
+                }
+                onUpdateWithBindings={(updated, bindings) =>
+                  selectedIsPending
+                    ? updatePendingNode(selectedNode.id, updated)
+                    : updateNodeAndBindings(selectedNode.id, updated, bindings)
+                }
                 onRenameBinding={renameBinding}
                 onClose={() => clearSelection()}
                 typeVars={state.typeVars}
