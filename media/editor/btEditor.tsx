@@ -97,10 +97,14 @@ function BtEditorInner() {
       const t = e.target as HTMLElement;
       const active = document.activeElement as HTMLElement;
       const inField =
-        t.tagName === "INPUT" || t.tagName === "TEXTAREA" ||
-        t.tagName === "SELECT" || t.isContentEditable ||
-        active.tagName === "INPUT" || active.tagName === "TEXTAREA" ||
-        active.tagName === "SELECT" || active.isContentEditable;
+        t.tagName === "INPUT" ||
+        t.tagName === "TEXTAREA" ||
+        t.tagName === "SELECT" ||
+        t.isContentEditable ||
+        active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT" ||
+        active.isContentEditable;
 
       if (mod && e.key === "s") {
         if (inField) return;
@@ -176,14 +180,11 @@ function BtEditorInner() {
     btNode: BtNode;
   } | null>(null);
 
-  const onNodeContextMenu = useCallback(
-    (e: React.MouseEvent, node: Node) => {
-      if (node.id === ROOT_NODE_ID) return;
-      e.preventDefault();
-      setCtxMenu({ x: e.clientX, y: e.clientY, btNode: node.data._btNode as BtNode });
-    },
-    [],
-  );
+  const onNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
+    if (node.id === ROOT_NODE_ID) return;
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, btNode: node.data._btNode as BtNode });
+  }, []);
 
   const onPaneClick = useCallback(() => {
     setCtxMenu(null);
@@ -297,9 +298,7 @@ function BtEditorInner() {
 
   // Show config panel for a single selected node — a tree node or a detached
   // (pending) node. Root is never editable.
-  const selectedEditableNodes = state.nodes.filter(
-    (n) => n.selected && n.id !== ROOT_NODE_ID,
-  );
+  const selectedEditableNodes = state.nodes.filter((n) => n.selected && n.id !== ROOT_NODE_ID);
   const selectedNode = selectedEditableNodes.length === 1 ? selectedEditableNodes[0] : null;
   const selectedBtNode = selectedNode ? (selectedNode.data._btNode as BtNode) : null;
   const selectedIsPending = selectedNode?.id.startsWith("pending-") ?? false;
@@ -309,259 +308,282 @@ function BtEditorInner() {
   return (
     <TypeVarsContext.Provider value={state.typeVars}>
       <ActiveBindingsContext.Provider value={activeSub?.bindings}>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          height: "100vh",
-          background: "var(--vscode-editor-background, #1e1e1e)",
-        }}
-      >
-        {/* Top bar */}
         <div
           style={{
-            height: 38,
             display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "0 10px",
-            background: "var(--vscode-titleBar-activeBackground, #252526)",
-            borderBottom: "1px solid var(--vscode-titleBar-border, #333)",
-            flexShrink: 0,
-            fontFamily: "var(--vscode-font-family)",
-            fontSize: 12,
-            color: "var(--vscode-editor-foreground, #ccc)",
+            flexDirection: "column",
+            height: "100vh",
+            background: "var(--vscode-editor-background, #1e1e1e)",
           }}
         >
-          {/* Current subtree name */}
-          <span
+          {/* Top bar */}
+          <div
             style={{
-              fontFamily: "monospace",
-              fontSize: 11,
-              opacity: 0.8,
-              maxWidth: 320,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              height: 38,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "0 10px",
+              background: "var(--vscode-titleBar-activeBackground, #252526)",
+              borderBottom: "1px solid var(--vscode-titleBar-border, #333)",
+              flexShrink: 0,
+              fontFamily: "var(--vscode-font-family)",
+              fontSize: 12,
+              color: "var(--vscode-editor-foreground, #ccc)",
             }}
-            title={activeSub?.typePath}
           >
-            {activeSub?.typePath ?? "—"}
-          </span>
+            {/* Current subtree name */}
+            <span
+              style={{
+                fontFamily: "monospace",
+                fontSize: 11,
+                opacity: 0.8,
+                maxWidth: 320,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={activeSub?.typePath}
+            >
+              {activeSub?.typePath ?? "—"}
+            </span>
 
-          <button
-            onClick={undo}
-            disabled={state.past.length === 0}
-            style={{ ...btnStyle, opacity: state.past.length === 0 ? 0.4 : 1 }}
-            title="Undo (Ctrl+Z)"
-          >
-            Undo
-          </button>
+            <button
+              onClick={undo}
+              disabled={state.past.length === 0}
+              style={{ ...btnStyle, opacity: state.past.length === 0 ? 0.4 : 1 }}
+              title="Undo (Ctrl+Z)"
+            >
+              Undo
+            </button>
 
-          <button
-            onClick={redo}
-            disabled={state.future.length === 0}
-            style={{ ...btnStyle, opacity: state.future.length === 0 ? 0.4 : 1 }}
-            title="Redo (Ctrl+Y)"
-          >
-            Redo
-          </button>
+            <button
+              onClick={redo}
+              disabled={state.future.length === 0}
+              style={{ ...btnStyle, opacity: state.future.length === 0 ? 0.4 : 1 }}
+              title="Redo (Ctrl+Y)"
+            >
+              Redo
+            </button>
 
-          <button onClick={relayout} style={btnStyle}>
-            Re-layout
-          </button>
+            <button onClick={relayout} style={btnStyle}>
+              Re-layout
+            </button>
 
-          <button
-            onClick={() => postMessage({ type: "refresh_types" })}
-            style={btnStyle}
-            title="Re-scan workspace for behavior/decorator type definitions"
-          >
-            Refresh Types
-          </button>
+            <button
+              onClick={() => postMessage({ type: "refresh_types" })}
+              style={btnStyle}
+              title="Re-scan workspace for behavior/decorator type definitions"
+            >
+              Refresh Types
+            </button>
 
-          <button
-            onClick={() => {
-              if (state.pendingGroups.length > 0) clearPendingNodes();
-              if (activeSub) saveAst(state.activeIndex, activeSub.root);
-            }}
-            style={{
-              ...btnStyle,
-              ...(state.isDirty ? { borderColor: "#f0a500", color: "#f0a500" } : {}),
-            }}
-            title="Save changes to .bt.json (Ctrl+S)"
-          >
-            Save {state.isDirty ? "●" : ""}
-          </button>
+            <button
+              onClick={() => {
+                if (state.pendingGroups.length > 0) clearPendingNodes();
+                if (activeSub) saveAst(state.activeIndex, activeSub.root);
+              }}
+              style={{
+                ...btnStyle,
+                ...(state.isDirty ? { borderColor: "#f0a500", color: "#f0a500" } : {}),
+              }}
+              title="Save changes to .bt.json (Ctrl+S)"
+            >
+              Save {state.isDirty ? "●" : ""}
+            </button>
 
-          <button onClick={() => revealInFile(state.activeIndex)} style={btnStyle}>
-            Go to Source
-          </button>
+            <button onClick={() => revealInFile(state.activeIndex)} style={btnStyle}>
+              Go to Source
+            </button>
 
-          {state.isDirty && (
-            <span style={{ marginLeft: 4, color: "#f0a500", fontSize: 11 }}>● Unsaved changes</span>
-          )}
+            {state.isDirty && (
+              <span style={{ marginLeft: 4, color: "#f0a500", fontSize: 11 }}>
+                ● Unsaved changes
+              </span>
+            )}
+          </div>
+
+          {/* Body */}
+          <div style={{ flex: 1, display: "flex", overflow: "hidden", flexDirection: "column" }}>
+            {/* Pending nodes warning */}
+            {state.pendingGroups.length > 0 && (
+              <div
+                style={{
+                  background: "#f0a50018",
+                  border: "1px solid #f0a500",
+                  borderLeft: "none",
+                  borderRight: "none",
+                  padding: "4px 12px",
+                  fontSize: 11,
+                  color: "#f0a500",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                ⚠ {state.pendingGroups.length} disconnected subtree
+                {state.pendingGroups.length > 1 ? "s" : ""} — connect them to the tree, or they will
+                be discarded on save.
+                <button
+                  onClick={clearPendingNodes}
+                  style={{ ...btnStyle, fontSize: 10, padding: "1px 7px" }}
+                >
+                  Discard
+                </button>
+              </div>
+            )}
+            {/* Main canvas row */}
+            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+              <NodePalette
+                postMessage={postMessage}
+                behaviors={state.behaviors}
+                typeVars={state.typeVars}
+                subtreeRefs={state.subtreeRefs}
+                controllerRefs={state.controllerRefs}
+                onOpen={openSubtree}
+                onRevealType={revealType}
+              />
+
+              <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0 }}>
+                <div
+                  style={{ position: "absolute", inset: 0 }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={onDrop}
+                >
+                  <ReactFlow
+                    nodes={state.nodes}
+                    edges={state.edges}
+                    nodeTypes={nodeTypes}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    onReconnect={onReconnect}
+                    edgesReconnectable={true}
+                    deleteKeyCode={null}
+                    onNodeClick={onNodeClick}
+                    onNodeDoubleClick={onNodeDoubleClick}
+                    onNodeContextMenu={onNodeContextMenu}
+                    onNodeDragStop={onNodeDragStop}
+                    onEdgeClick={onEdgeClick}
+                    onPaneClick={onPaneClick}
+                    fitView
+                    panOnDrag={[1, 2]}
+                    panOnScroll={true}
+                    multiSelectionKeyCode="Control"
+                    selectionKeyCode={null}
+                    proOptions={{ hideAttribution: true }}
+                  >
+                    <Controls />
+                    <MiniMap
+                      style={{
+                        background: "var(--vscode-editor-background, #1e1e1e)",
+                        border: "1px solid #444",
+                      }}
+                      nodeColor={(n) => {
+                        const type = n.type ?? "";
+                        if (type === "rootNode") return "#444";
+                        if (type.includes("selector")) return "#4CAF50";
+                        if (type.includes("sequence")) return "#2196F3";
+                        if (type.includes("parallel")) return "#9C27B0";
+                        if (type.includes("subplan")) return "#FFB300";
+                        if (type.includes("leaf")) return "#FF9800";
+                        if (type.includes("subtree")) return "#26C6DA";
+                        return "#607D8B";
+                      }}
+                    />
+                    <Background color="#333" gap={20} />
+                  </ReactFlow>
+                </div>
+              </div>
+
+              {selectedBtNode && selectedNode && (
+                <NodeConfigPanel
+                  node={{ ...selectedBtNode, id: selectedNode.id }}
+                  onUpdate={(updated) =>
+                    selectedIsPending
+                      ? updatePendingNode(selectedNode.id, updated)
+                      : updateNode(selectedNode.id, updated)
+                  }
+                  onUpdateWithBindings={(updated, bindings) =>
+                    selectedIsPending
+                      ? updatePendingNode(selectedNode.id, updated)
+                      : updateNodeAndBindings(selectedNode.id, updated, bindings)
+                  }
+                  onRenameBinding={renameBinding}
+                  onClose={() => clearSelection()}
+                  typeVars={state.typeVars}
+                  activeSubtreeBindings={state.subtrees[state.activeIndex]?.bindings}
+                  subtreeBindings={state.subtreeBindings}
+                />
+              )}
+            </div>
+            {/* end main canvas row */}
+          </div>
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, display: "flex", overflow: "hidden", flexDirection: "column" }}>
-          {/* Pending nodes warning */}
-          {state.pendingGroups.length > 0 && (
-            <div
-              style={{
-                background: "#f0a50018",
-                border: "1px solid #f0a500",
-                borderLeft: "none",
-                borderRight: "none",
-                padding: "4px 12px",
-                fontSize: 11,
-                color: "#f0a500",
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              ⚠ {state.pendingGroups.length} disconnected subtree
-              {state.pendingGroups.length > 1 ? "s" : ""} — connect them to the tree, or they will
-              be discarded on save.
-              <button
-                onClick={clearPendingNodes}
-                style={{ ...btnStyle, fontSize: 10, padding: "1px 7px" }}
-              >
-                Discard
-              </button>
-            </div>
-          )}
-          {/* Main canvas row */}
-          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-            <NodePalette
-              postMessage={postMessage}
-              behaviors={state.behaviors}
-              typeVars={state.typeVars}
-              subtreeRefs={state.subtreeRefs}
-              controllerRefs={state.controllerRefs}
-              onOpen={openSubtree}
-              onRevealType={revealType}
-            />
-
-            <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0 }}>
-              <div
-                style={{ position: "absolute", inset: 0 }}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={onDrop}
-              >
-                <ReactFlow
-                  nodes={state.nodes}
-                  edges={state.edges}
-                  nodeTypes={nodeTypes}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
-                  onConnect={onConnect}
-                  onReconnect={onReconnect}
-                  edgesReconnectable={true}
-                  deleteKeyCode={null}
-                  onNodeClick={onNodeClick}
-                  onNodeDoubleClick={onNodeDoubleClick}
-                  onNodeContextMenu={onNodeContextMenu}
-                  onNodeDragStop={onNodeDragStop}
-                  onEdgeClick={onEdgeClick}
-                  onPaneClick={onPaneClick}
-                  fitView
-                  panOnDrag={[1, 2]}
-                  panOnScroll={true}
-                  multiSelectionKeyCode="Control"
-                  selectionKeyCode={null}
-                  proOptions={{ hideAttribution: true }}
-                >
-                  <Controls />
-                  <MiniMap
-                    style={{
-                      background: "var(--vscode-editor-background, #1e1e1e)",
-                      border: "1px solid #444",
-                    }}
-                    nodeColor={(n) => {
-                      const type = n.type ?? "";
-                      if (type === "rootNode") return "#444";
-                      if (type.includes("selector")) return "#4CAF50";
-                      if (type.includes("sequence")) return "#2196F3";
-                      if (type.includes("parallel")) return "#9C27B0";
-                      if (type.includes("subplan")) return "#FFB300";
-                      if (type.includes("leaf")) return "#FF9800";
-                      if (type.includes("subtree")) return "#26C6DA";
-                      return "#607D8B";
-                    }}
-                  />
-                  <Background color="#333" gap={20} />
-                </ReactFlow>
-              </div>
-            </div>
-
-            {selectedBtNode && selectedNode && (
-              <NodeConfigPanel
-                node={{ ...selectedBtNode, id: selectedNode.id }}
-                onUpdate={(updated) =>
-                  selectedIsPending
-                    ? updatePendingNode(selectedNode.id, updated)
-                    : updateNode(selectedNode.id, updated)
-                }
-                onUpdateWithBindings={(updated, bindings) =>
-                  selectedIsPending
-                    ? updatePendingNode(selectedNode.id, updated)
-                    : updateNodeAndBindings(selectedNode.id, updated, bindings)
-                }
-                onRenameBinding={renameBinding}
-                onClose={() => clearSelection()}
-                typeVars={state.typeVars}
-                activeSubtreeBindings={state.subtrees[state.activeIndex]?.bindings}
-                subtreeBindings={state.subtreeBindings}
+        {ctxMenu && (
+          <div
+            style={{
+              position: "fixed",
+              left: ctxMenu.x,
+              top: ctxMenu.y,
+              background: "var(--vscode-menu-background, #252526)",
+              border: "1px solid var(--vscode-menu-border, #454545)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+              zIndex: 9999,
+              minWidth: 180,
+              padding: "4px 0",
+            }}
+            onMouseLeave={() => setCtxMenu(null)}
+          >
+            {ctxMenu.btNode.kind === "subtree" && (
+              <>
+                <CtxItem
+                  label="Open in New Window"
+                  onClick={() => {
+                    const allRefs = [...(state.subtreeRefs ?? []), ...(state.controllerRefs ?? [])];
+                    const ref = allRefs.find(
+                      (r) =>
+                        r.typePath ===
+                        (ctxMenu.btNode as Extract<BtNode, { kind: "subtree" }>).behaviorType,
+                    );
+                    if (ref)
+                      openSubtree(ref.typePath, ref.filePath, ref.jsonPath, true, ref.inherited);
+                    setCtxMenu(null);
+                  }}
+                />
+                <CtxItem
+                  label="Go to DM Source"
+                  onClick={() => {
+                    revealType(
+                      (ctxMenu.btNode as Extract<BtNode, { kind: "subtree" }>).behaviorType,
+                    );
+                    setCtxMenu(null);
+                  }}
+                />
+              </>
+            )}
+            {ctxMenu.btNode.kind === "leaf" && (
+              <CtxItem
+                label="Go to Type Definition"
+                onClick={() => {
+                  revealType((ctxMenu.btNode as Extract<BtNode, { kind: "leaf" }>).behaviorType);
+                  setCtxMenu(null);
+                }}
+              />
+            )}
+            {ctxMenu.btNode.kind === "decorator" && (
+              <CtxItem
+                label="Go to Type Definition"
+                onClick={() => {
+                  revealType((ctxMenu.btNode as Extract<BtNode, { kind: "decorator" }>).nodeType);
+                  setCtxMenu(null);
+                }}
               />
             )}
           </div>
-          {/* end main canvas row */}
-        </div>
-      </div>
-
-      {ctxMenu && (
-        <div
-          style={{
-            position: "fixed",
-            left: ctxMenu.x,
-            top: ctxMenu.y,
-            background: "var(--vscode-menu-background, #252526)",
-            border: "1px solid var(--vscode-menu-border, #454545)",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-            zIndex: 9999,
-            minWidth: 180,
-            padding: "4px 0",
-          }}
-          onMouseLeave={() => setCtxMenu(null)}
-        >
-          {ctxMenu.btNode.kind === "subtree" && (<>
-            <CtxItem label="Open in New Window" onClick={() => {
-              const allRefs = [...(state.subtreeRefs ?? []), ...(state.controllerRefs ?? [])];
-              const ref = allRefs.find((r) => r.typePath === (ctxMenu.btNode as Extract<BtNode, { kind: "subtree" }>).behaviorType);
-              if (ref) openSubtree(ref.typePath, ref.filePath, ref.jsonPath, true, ref.inherited);
-              setCtxMenu(null);
-            }} />
-            <CtxItem label="Go to DM Source" onClick={() => {
-              revealType((ctxMenu.btNode as Extract<BtNode, { kind: "subtree" }>).behaviorType);
-              setCtxMenu(null);
-            }} />
-          </>)}
-          {ctxMenu.btNode.kind === "leaf" && (
-            <CtxItem label="Go to Type Definition" onClick={() => {
-              revealType((ctxMenu.btNode as Extract<BtNode, { kind: "leaf" }>).behaviorType);
-              setCtxMenu(null);
-            }} />
-          )}
-          {ctxMenu.btNode.kind === "decorator" && (
-            <CtxItem label="Go to Type Definition" onClick={() => {
-              revealType((ctxMenu.btNode as Extract<BtNode, { kind: "decorator" }>).nodeType);
-              setCtxMenu(null);
-            }} />
-          )}
-        </div>
-      )}
+        )}
       </ActiveBindingsContext.Provider>
     </TypeVarsContext.Provider>
   );
@@ -606,7 +628,7 @@ const btnStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
-// ---- Entrypoint ----
+// entry point
 import ReactDOM from "react-dom/client";
 
 const root = document.getElementById("root");

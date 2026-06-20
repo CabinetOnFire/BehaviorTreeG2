@@ -1608,6 +1608,7 @@ function pruneUnusedBindings(
         break;
       case "subtree":
         collectFromValue(node.behaviorType);
+        if (node.bindings) for (const v of Object.values(node.bindings)) collectFromValue(v);
         break;
       case "selector":
       case "sequence":

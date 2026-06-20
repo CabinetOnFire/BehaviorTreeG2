@@ -148,7 +148,7 @@ export function buildLayout(root: BtNode, includeRootStub = false): LayoutResult
   }
 
   for (const e of rawEdges) {
-    // Decorator → child: tighter ranksep (dagre edge weight doesn't change ranksep,
+    // Decorator -> child: tighter ranksep (dagre edge weight doesn't change ranksep,
     // but we can use minlen=1 and rely on the tight default for close nodes)
     g.setEdge(e.source, e.target, e.isDecorator ? { minlen: 1 } : { minlen: 2 });
   }

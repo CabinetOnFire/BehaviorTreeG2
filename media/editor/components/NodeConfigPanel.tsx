@@ -521,6 +521,13 @@ function SubtreeConfig({
     });
   };
 
+  const buildNode = (overrides: Record<string, string> | undefined): Extract<BtNode, { kind: "subtree" }> => ({
+    ...node,
+    behaviorType: path,
+    overrideId: overrideId.trim() || undefined,
+    bindings: overrides && Object.keys(overrides).length > 0 ? overrides : undefined,
+  });
+
   const setBindingOverride = (name: string, value: string) => {
     const updated: Record<string, string> = { ...(node.bindings ?? {}) };
     if (value === "") {
@@ -528,11 +535,44 @@ function SubtreeConfig({
     } else {
       updated[name] = value;
     }
-    onUpdate({
-      ...node,
-      behaviorType: path,
-      overrideId: overrideId.trim() || undefined,
-      bindings: Object.keys(updated).length > 0 ? updated : undefined,
+    onUpdate(buildNode(updated));
+  };
+
+  // Bind an override value to a slot on *this* subtree (nested / pass-through binding).
+  const bindOverride = (name: string, rawLabel: string) => {
+    const label = rawLabel.trim();
+    if (!label) return;
+    const id = generateBindingId();
+    const innerDefault = decls?.[name]?.default ?? "";
+    const newDecls: BtBindingDeclarations = {
+      ...(activeSubtreeBindings ?? {}),
+      [id]: { label, default: node.bindings?.[name] || innerDefault },
+    };
+    onUpdateWithBindings(buildNode({ ...(node.bindings ?? {}), [name]: `$${id}` }), newDecls);
+  };
+
+  const unbindOverride = (name: string) => {
+    const val = node.bindings?.[name];
+    if (!val?.startsWith("$")) return;
+    const id = val.slice(1);
+    const restored = activeSubtreeBindings?.[id]?.default ?? "";
+    const newDecls = { ...(activeSubtreeBindings ?? {}) };
+    delete newDecls[id];
+    const overrides = { ...(node.bindings ?? {}) };
+    if (restored) overrides[name] = restored;
+    else delete overrides[name];
+    onUpdateWithBindings(
+      buildNode(overrides),
+      Object.keys(newDecls).length > 0 ? newDecls : undefined,
+    );
+  };
+
+  const updateOverrideBindingDefault = (id: string, newDefault: string) => {
+    const decl = activeSubtreeBindings?.[id];
+    if (!decl) return;
+    onUpdateWithBindings(node, {
+      ...(activeSubtreeBindings ?? {}),
+      [id]: { ...decl, default: newDefault },
     });
   };
 
@@ -639,9 +679,15 @@ function SubtreeConfig({
           {declEntries.map(([name, decl]) => (
             <BindingOverrideField
               key={name}
+              name={name}
               decl={decl}
               value={node.bindings?.[name] ?? ""}
-              onCommit={(val) => setBindingOverride(name, val)}
+              activeSubtreeBindings={activeSubtreeBindings}
+              onCommitLiteral={(val) => setBindingOverride(name, val)}
+              onBind={(label) => bindOverride(name, label)}
+              onUnbind={() => unbindOverride(name)}
+              onRenameLabel={onRenameBinding}
+              onDefaultChange={updateOverrideBindingDefault}
             />
           ))}
         </>
@@ -651,28 +697,95 @@ function SubtreeConfig({
 }
 
 function BindingOverrideField({
+  name,
   decl,
   value,
-  onCommit,
+  activeSubtreeBindings,
+  onCommitLiteral,
+  onBind,
+  onUnbind,
+  onRenameLabel,
+  onDefaultChange,
 }: {
+  name: string;
   decl: { label: string; default: string };
   value: string;
-  onCommit: (val: string) => void;
+  activeSubtreeBindings: BtBindingDeclarations | undefined;
+  onCommitLiteral: (val: string) => void;
+  onBind: (label: string) => void;
+  onUnbind: () => void;
+  onRenameLabel: (id: string, newLabel: string) => void;
+  onDefaultChange: (id: string, newDefault: string) => void;
 }) {
+  const isBound = value.startsWith("$");
+  const bindingId = isBound ? value.slice(1) : null;
+  const bindingDecl = bindingId ? activeSubtreeBindings?.[bindingId] : undefined;
+
   const [local, setLocal] = useState(value);
+  const [pendingBind, setPendingBind] = useState(false);
+  const [pendingName, setPendingName] = useState("");
   useEffect(() => setLocal(value), [value]);
+
+  const confirmBind = (raw: string) => {
+    const lbl = raw.trim();
+    setPendingBind(false);
+    if (lbl) onBind(lbl);
+  };
 
   return (
     <div>
       <FieldLabel>{decl.label}</FieldLabel>
-      <input
-        value={local}
-        onChange={(e) => setLocal(e.target.value)}
-        onBlur={() => onCommit(local.trim())}
-        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-        placeholder={decl.default || "(use default)"}
-        style={{ ...inputStyle, fontFamily: "monospace" }}
-      />
+      {isBound && bindingId ? (
+        <BoundArgRow
+          bindingId={bindingId}
+          bindingDecl={bindingDecl}
+          onRenameLabel={onRenameLabel}
+          onRemove={onUnbind}
+          onDefaultChange={(d) => onDefaultChange(bindingId, d)}
+        />
+      ) : pendingBind ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 2 }}>
+          <div style={{ opacity: 0.6, fontSize: 10 }}>Binding slot name:</div>
+          <div style={{ display: "flex", gap: 4 }}>
+            <input
+              autoFocus
+              value={pendingName}
+              onChange={(e) => setPendingName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmBind(pendingName);
+                if (e.key === "Escape") setPendingBind(false);
+              }}
+              onBlur={() => confirmBind(pendingName)}
+              placeholder={decl.label}
+              style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }}
+            />
+            <button
+              onMouseDown={(e) => { e.preventDefault(); setPendingBind(false); }}
+              style={smallButtonStyle}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 4, alignItems: "flex-start" }}>
+          <input
+            value={local}
+            onChange={(e) => setLocal(e.target.value)}
+            onBlur={() => onCommitLiteral(local.trim())}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            placeholder={decl.default || "(use default)"}
+            style={{ ...inputStyle, flex: 1, fontFamily: "monospace" }}
+          />
+          <button
+            onClick={() => { setPendingBind(true); setPendingName(name); }}
+            title="Bind this override to a slot on this subtree (pass-through)"
+            style={{ ...smallButtonStyle, opacity: 0.5 }}
+          >
+            ⬡
+          </button>
+        </div>
+      )}
     </div>
   );
 }

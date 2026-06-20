@@ -4,14 +4,10 @@ import * as cp from "child_process";
 import type { BtBindingDeclarations, BtNode, SubtreeDescriptor } from "../shared/types";
 import { serializeToJsonString } from "./serializer/btJsonSerializer";
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Write-back: save a mutated AST to its .bt.json file
-// ──────────────────────────────────────────────────────────────────────────────
+// Save a mutated AST to its .bt.json file.
 
-/**
- * Write a mutated BtNode back to the descriptor's .bt.json file using
- * WorkspaceEdit (preserves VS Code undo history).
- */
+// Writes a mutated BtNode back to the descriptor's .bt.json file using
+// WorkspaceEdit so VS Code undo history is preserved.
 export async function writeSubtreeToFile(
   descriptor: SubtreeDescriptor,
   root: BtNode,
@@ -39,7 +35,7 @@ export async function writeSubtreeToFile(
     );
     edit.replace(uri, fullRange, jsonText);
   } catch {
-    // File not yet open — create it fresh
+    // File not yet open, so create it fresh.
     edit.createFile(uri, { overwrite: true });
     edit.insert(uri, new vscode.Position(0, 0), jsonText);
   }
@@ -49,9 +45,7 @@ export async function writeSubtreeToFile(
   await savedDoc.save();
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Create: write a minimal empty-selector .bt.json file
-// ──────────────────────────────────────────────────────────────────────────────
+// Write a minimal empty selector .bt.json file.
 
 export async function createEmptyBtJson(uri: vscode.Uri): Promise<void> {
   const content = JSON.stringify({ type: "selector", children: [] }, null, "\t");
@@ -496,7 +490,7 @@ async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
 
     for (const [typePath, { relPath, dmFsPath }] of toResolve) {
       _btJsonRefsCache.delete(typePath);
-      // Try DM-relative first (exact, no I/O)
+      // Try DM-relative first
       const absPath = path.resolve(path.dirname(dmFsPath), relPath);
       if (btJsonAbsPaths.has(absPath)) {
         _btJsonRefsCache.set(typePath, absPath);
@@ -515,7 +509,7 @@ async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
     `[scan] btJsonRef resolve: ${toResolve.length} new / ${btJsonRefs.size} total in ${Date.now() - t4}ms`,
   );
 
-  // Attach jsonPath + bindings in parallel (direct hit or ancestor inheritance).
+  // Attach jsonPath + bindings in parallel
   const bindingCache = new Map<string, Promise<BtBindingDeclarations | undefined>>();
   const cachedBindings = (jp: string) => {
     if (!bindingCache.has(jp)) bindingCache.set(jp, _readBtJsonBindings(jp));

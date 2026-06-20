@@ -95,7 +95,7 @@ export function SubtreeNode({ data, selected }: NodeProps) {
               opacity: 0.7,
               fontFamily: "monospace",
             }}
-            title={Object.entries(bt.bindings).map(([k, v]) => `${k}: ${v}`).join("\n")}
+            title={Object.entries(bt.bindings).map(([k, v]) => `${k}: ${resolveBinding(v)}`).join("\n")}
           >
             {Object.keys(bt.bindings).length} override{Object.keys(bt.bindings).length !== 1 ? "s" : ""}
           </div>
