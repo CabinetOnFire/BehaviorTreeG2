@@ -79,6 +79,7 @@ export interface ScanResult {
     filePath: string;
     jsonPath?: string;
     inherited?: boolean;
+    abstract?: boolean;
     bindings?: BtBindingDeclarations;
   }>;
   controllers: Array<{
@@ -86,6 +87,7 @@ export interface ScanResult {
     filePath: string;
     jsonPath?: string;
     inherited?: boolean;
+    abstract?: boolean;
     bindings?: BtBindingDeclarations;
   }>;
   typeVars: Record<string, TypeVarsEntry>;
@@ -408,6 +410,7 @@ async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
     filePath: string;
     jsonPath?: string;
     inherited?: boolean;
+    abstract?: boolean;
     bindings?: BtBindingDeclarations;
   }> = [];
   const controllers: Array<{
@@ -415,6 +418,7 @@ async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
     filePath: string;
     jsonPath?: string;
     inherited?: boolean;
+    abstract?: boolean;
     bindings?: BtBindingDeclarations;
   }> = [];
   const allTypes = new Map<string, _RawTypeInfo>();
@@ -518,6 +522,11 @@ async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
 
   await Promise.all(
     [...subtrees, ...controllers].map(async (entry) => {
+      // `behavior_tree_json = "Abstract"` flags an intentionally tree-less base type.
+      if (rawBtJsonRefs.get(entry.typePath)?.relPath === "Abstract") {
+        entry.abstract = true;
+        return;
+      }
       const jp = btJsonRefs.get(entry.typePath);
       if (jp) {
         entry.jsonPath = jp;
@@ -580,9 +589,6 @@ async function _doScanAll(forceRefresh: boolean): Promise<ScanResult> {
   };
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// .bt.json binding declarations reader
-// ──────────────────────────────────────────────────────────────────────────────
 
 async function _readBtJsonBindings(jsonPath: string): Promise<BtBindingDeclarations | undefined> {
   try {
@@ -606,9 +612,6 @@ async function _readBtJsonBindings(jsonPath: string): Promise<BtBindingDeclarati
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// behavior_tree_json reference scanner
-// ──────────────────────────────────────────────────────────────────────────────
 
 async function _parseBtJsonRefs(
   text: string,
@@ -642,19 +645,16 @@ async function _parseBtJsonRefs(
 
     if (!currentType) continue;
 
-    // Single-tab behavior_tree_json assignment
     if (rawLine.startsWith("\t") && !rawLine.startsWith("\t\t")) {
-      const btM = rawLine.match(/^\t+behavior_tree_json\s*=\s*"([^"]+)"/);
+      const btM = rawLine.match(/^\t+behavior_tree_json\s*=\s*(?:"([^"]+)"|(\w+))/);
       if (btM && !btJsonRefs.has(currentType)) {
-        btJsonRefs.set(currentType, { relPath: btM[1], dmFsPath });
+        const relPath = btM[1] ?? (btM[2] === "ABSTRACT_AI_CLASS" ? "Abstract" : undefined);
+        if (relPath) btJsonRefs.set(currentType, { relPath, dmFsPath });
       }
     }
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Type-var scanner
-// ──────────────────────────────────────────────────────────────────────────────
 
 async function _parseTypeVarsFromText(
   text: string,

@@ -2,7 +2,7 @@
   "name": "behaviortreeg",
   "displayName": "BehaviorTreeG",
   "description": "Visual behavior tree editor for tgstation's implementation of behavior trees",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "icon": "media/bt-editor-logo.png",
   "license": "GPL-3.0",
   "publisher": "behaviortreeg",
@@ -43,6 +43,11 @@
       {
         "command": "bt-editor.open-json",
         "title": "Open in BT Editor",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "bt-editor.open-controller",
+        "title": "Open in BT Editor (New Window)",
         "icon": "$(go-to-file)"
       },
       {
@@ -112,12 +117,17 @@
       "view/item/context": [
         {
           "command": "bt-editor.open-json",
-          "when": "viewItem == btEntry || viewItem == btEntryInherited || viewItem == btEntryNoJson",
+          "when": "viewItem == btEntry || viewItem == btEntryInherited",
+          "group": "inline"
+        },
+        {
+          "command": "bt-editor.open-controller",
+          "when": "viewItem == btEntryController || viewItem == btEntryControllerInherited || viewItem == btEntryControllerNoJson",
           "group": "inline"
         },
         {
           "command": "bt-editor.create-bt-json",
-          "when": "viewItem == btEntryInherited",
+          "when": "viewItem == btEntryInherited || viewItem == btEntryControllerInherited",
           "group": "1_actions"
         }
       ]

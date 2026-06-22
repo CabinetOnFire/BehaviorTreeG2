@@ -60,7 +60,7 @@ export class BtEditorPanel {
   }
 
   /** Open a new independent BT editor panel without replacing the existing one. */
-  static createNew(context: vscode.ExtensionContext, uri: vscode.Uri) {
+  static createNew(context: vscode.ExtensionContext, uri: vscode.Uri, typePath?: string) {
     const panel = vscode.window.createWebviewPanel(
       BtEditorPanel.viewType,
       "BT Editor",
@@ -71,7 +71,27 @@ export class BtEditorPanel {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
       },
     );
-    new BtEditorPanel(panel, context, uri);
+    new BtEditorPanel(panel, context, uri, typePath);
+  }
+
+  /**
+   * Open a controller in its own panel. If a panel already shows this controller,
+   * focus that one instead of opening a duplicate.
+   */
+  static openController(context: vscode.ExtensionContext, uri: vscode.Uri, typePath: string) {
+    const isJson = uri.fsPath.endsWith(".bt.json");
+    for (const panel of BtEditorPanel._allPanels) {
+      const alreadyOpen = panel._subtrees.some(
+        (s) =>
+          s.typePath === typePath ||
+          (isJson && s.jsonPath && vscode.Uri.file(s.jsonPath).toString() === uri.toString()),
+      );
+      if (alreadyOpen) {
+        panel._panel.reveal(vscode.ViewColumn.Active);
+        return;
+      }
+    }
+    BtEditorPanel.createNew(context, uri, typePath);
   }
 
   constructor(
@@ -378,6 +398,13 @@ export class BtEditorPanel {
     await createEmptyBtJson(jsonUri);
     log.appendLine(`[createBtJsonForType] created ${jsonUri.fsPath}`);
 
+    // Reference the JSON by its workspace-root-relative path (forward slashes),
+    // falling back to the bare filename if it lives outside any workspace folder.
+    const wsRoot = vscode.workspace.getWorkspaceFolder(jsonUri)?.uri.fsPath;
+    const jsonRef = wsRoot
+      ? path.relative(wsRoot, jsonUri.fsPath).replace(/\\/g, "/")
+      : suggestedFileName;
+
     // Insert the behavior_tree_json line after the type declaration in the DM file
     const doc = await vscode.workspace.openTextDocument(dmUri);
     const lines = doc.getText().split(/\r?\n/);
@@ -389,7 +416,7 @@ export class BtEditorPanel {
       edit.insert(
         dmUri,
         new vscode.Position(insertLine + 1, 0),
-        `\tbehavior_tree_json = "${suggestedFileName}"\n`,
+        `\tbehavior_tree_json = "${jsonRef}"\n`,
       );
       await vscode.workspace.applyEdit(edit);
       await doc.save();
@@ -633,8 +660,31 @@ export class BtEditorPanel {
         const uri = vscode.Uri.file(filePath);
         const doc = await vscode.workspace.openTextDocument(uri);
         const lines = doc.getText().split(/\r?\n/);
-        const lineIdx = lines.findIndex((l) => l.startsWith(msg.typePath));
-        const pos = new vscode.Position(Math.max(0, lineIdx), 0);
+        const lineIdx = Math.max(0, lines.findIndex((l) => l.startsWith(msg.typePath)));
+        const pos = new vscode.Position(lineIdx, 0);
+
+        // Try the DM language server first (dm-langserver via dreammaker-lsp extension)
+        try {
+          const lspResults = await vscode.commands.executeCommand<
+            (vscode.Location | vscode.LocationLink)[]
+          >("vscode.executeDefinitionProvider", uri, pos);
+          if (lspResults && lspResults.length > 0) {
+            const first = lspResults[0];
+            const targetUri = "targetUri" in first ? first.targetUri : first.uri;
+            const targetRange = "targetRange" in first ? first.targetRange : first.range;
+            const targetDoc = await vscode.workspace.openTextDocument(targetUri);
+            const lspEditor = await vscode.window.showTextDocument(targetDoc, {
+              viewColumn: vscode.ViewColumn.One,
+              preserveFocus: false,
+            });
+            lspEditor.revealRange(targetRange, vscode.TextEditorRevealType.InCenter);
+            lspEditor.selection = new vscode.Selection(targetRange.start, targetRange.start);
+            break;
+          }
+        } catch {
+          // dm-langserver not active, fall through to scan-based navigation
+        }
+
         const editor = await vscode.window.showTextDocument(doc, {
           viewColumn: vscode.ViewColumn.One,
           preserveFocus: false,

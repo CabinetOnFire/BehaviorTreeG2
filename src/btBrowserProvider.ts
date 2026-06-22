@@ -2,7 +2,13 @@ import * as vscode from "vscode";
 import { scanAll } from "./fileSync";
 import type { ScanResult } from "./fileSync";
 
-type Ref = { typePath: string; filePath: string; jsonPath?: string; inherited?: boolean };
+type Ref = {
+  typePath: string;
+  filePath: string;
+  jsonPath?: string;
+  inherited?: boolean;
+  abstract?: boolean;
+};
 
 const CACHE_KEY = "btEditor.scanCache";
 
@@ -102,29 +108,50 @@ export class BtBrowserProvider implements vscode.TreeDataProvider<BtTreeItem> {
     const item = new BtTreeItem(label, vscode.TreeItemCollapsibleState.None, "entry", undefined, ref);
     item.description = ref.typePath;
 
-    if (ref.inherited) {
+    if (ref.abstract) {
+      item.iconPath = new vscode.ThemeIcon(
+        "symbol-interface",
+        new vscode.ThemeColor("descriptionForeground"),
+      );
+      item.tooltip = `${ref.typePath}\n◇ Abstract — no behavior tree of its own`;
+      item.contextValue = "btEntryAbstract";
+      // Abstract types have no tree to open; leave the item non-clickable.
+      return item;
+    } else if (ref.inherited) {
       item.iconPath = new vscode.ThemeIcon(
         "type-hierarchy-sub",
         new vscode.ThemeColor("editorWarning.foreground"),
       );
       item.tooltip = `${ref.typePath}\n↑ Inherits behavior tree from parent`;
-      item.contextValue = "btEntryInherited";
+      item.contextValue = isController ? "btEntryControllerInherited" : "btEntryInherited";
     } else if (isController && !ref.jsonPath) {
       item.iconPath = new vscode.ThemeIcon("error", new vscode.ThemeColor("errorForeground"));
       item.tooltip = `${ref.typePath}\n⚠ No behavior_tree_json found`;
-      item.contextValue = "btEntryNoJson";
+      item.contextValue = "btEntryControllerNoJson";
     } else {
       item.tooltip = ref.typePath;
-      item.contextValue = "btEntry";
+      item.contextValue = isController ? "btEntryController" : "btEntry";
     }
 
-    item.command = {
-      command: "bt-editor.open-json",
-      title: "Open",
-      arguments: ref.jsonPath
-        ? [vscode.Uri.file(ref.jsonPath)]
-        : [vscode.Uri.file(ref.filePath), ref.typePath],
-    };
+    // Controllers open in their own panel (focusing an existing one if already open);
+    // subtrees reuse the active panel.
+    if (isController) {
+      item.command = {
+        command: "bt-editor.open-controller",
+        title: "Open",
+        arguments: ref.jsonPath
+          ? [vscode.Uri.file(ref.jsonPath), ref.typePath]
+          : [vscode.Uri.file(ref.filePath), ref.typePath],
+      };
+    } else {
+      item.command = {
+        command: "bt-editor.open-json",
+        title: "Open",
+        arguments: ref.jsonPath
+          ? [vscode.Uri.file(ref.jsonPath)]
+          : [vscode.Uri.file(ref.filePath), ref.typePath],
+      };
+    }
     return item;
   }
 }

@@ -1,16 +1,12 @@
 import type { BtBindingDeclarations, BtNode } from "../../shared/types";
 import { COMPOSITE_SCHEMAS } from "../../shared/compositeSchema";
 
-// ---------------------------------------------------------------------------
 // JSON node shapes (as written in .bt.json files)
-// ---------------------------------------------------------------------------
 
 type JsonVal = string | number | boolean | null | JsonVal[] | { [k: string]: JsonVal };
 type JsonObj = { [k: string]: JsonVal };
 
-// ---------------------------------------------------------------------------
 // Scalar conversion helpers
-// ---------------------------------------------------------------------------
 
 /** Convert a JSON scalar (string/number/bool) to the string form stored in BtNode. */
 function scalarToString(v: JsonVal): string {
@@ -27,9 +23,7 @@ function configValueToNode(v: JsonVal): string | string[] {
   return scalarToString(v);
 }
 
-// ---------------------------------------------------------------------------
 // Recursive node parser
-// ---------------------------------------------------------------------------
 
 function parseNode(obj: JsonObj): BtNode {
   const type = obj["type"] as string;
@@ -95,7 +89,11 @@ function parseNode(obj: JsonObj): BtNode {
         behaviorType: String(obj["subtype"] ?? ""),
       };
       if (obj["override_id"] != null) subtree.overrideId = String(obj["override_id"]);
-      if (obj["bindings"] != null && typeof obj["bindings"] === "object" && !Array.isArray(obj["bindings"])) {
+      if (
+        obj["bindings"] != null &&
+        typeof obj["bindings"] === "object" &&
+        !Array.isArray(obj["bindings"])
+      ) {
         const raw = obj["bindings"] as Record<string, JsonVal>;
         const bindings: Record<string, string> = {};
         for (const [k, v] of Object.entries(raw)) bindings[k] = String(v);
@@ -109,15 +107,16 @@ function parseNode(obj: JsonObj): BtNode {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
 /** Parse a .bt.json file's text content into a BtNode AST plus optional metadata. */
-export function parseJsonFile(jsonText: string): { root: BtNode; dmType?: string; bindings?: BtBindingDeclarations } {
+export function parseJsonFile(jsonText: string): {
+  root: BtNode;
+  dmType?: string;
+  bindings?: BtBindingDeclarations;
+} {
   const obj = JSON.parse(jsonText) as JsonObj;
   const root = parseNode(obj);
-  const dmType = typeof obj["dm_type"] === "string" && obj["dm_type"] ? (obj["dm_type"] as string) : undefined;
+  const dmType =
+    typeof obj["dm_type"] === "string" && obj["dm_type"] ? (obj["dm_type"] as string) : undefined;
   const bindings = _parseBindingDeclarations(obj);
   return { root, dmType, ...(bindings ? { bindings } : {}) };
 }

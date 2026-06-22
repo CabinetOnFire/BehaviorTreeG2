@@ -440,7 +440,6 @@ function BtEditorInner() {
                 behaviors={state.behaviors}
                 typeVars={state.typeVars}
                 subtreeRefs={state.subtreeRefs}
-                controllerRefs={state.controllerRefs}
                 onOpen={openSubtree}
                 onRevealType={revealType}
               />

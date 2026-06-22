@@ -7,7 +7,6 @@ interface NodePaletteProps {
   behaviors: string[] | null;
   typeVars: Record<string, { params: Array<{ name: string; defaultValue: string }>; vars: Array<{ name: string; defaultValue: string }> }> | null;
   subtreeRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
-  controllerRefs: Array<{ typePath: string; filePath: string; jsonPath?: string; inherited?: boolean }> | null;
   onOpen: (typePath: string, filePath: string, jsonPath?: string, newPanel?: boolean, inherited?: boolean) => void;
   onRevealType: (typePath: string) => void;
 }
@@ -21,7 +20,7 @@ const STATIC_TILES = [
   { label: "Bindable behavior", kind: "bindable-behavior", color: "#FF9800", icon: "⬡" },
 ];
 
-export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, controllerRefs, onOpen, onRevealType }: NodePaletteProps) {
+export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, onOpen, onRevealType }: NodePaletteProps) {
   const [behaviorsOpen, setBehaviorsOpen] = useState(false);
   const [behaviorsLoaded, setBehaviorsLoaded] = useState(false);
   const [behaviorFilter, setBehaviorFilter] = useState("");
@@ -47,11 +46,6 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
   const lc = browserFilter.toLowerCase();
   const filteredBehaviors = behaviors
     ? behaviors.filter((b) => b.toLowerCase().includes(behaviorFilter.toLowerCase()))
-    : [];
-  const filteredControllers = controllerRefs
-    ? controllerRefs
-        .filter((c) => c.typePath.toLowerCase().includes(lc))
-        .sort((a, b) => a.typePath.localeCompare(b.typePath))
     : [];
   const filteredSubtrees = subtreeRefs
     ? subtreeRefs
@@ -216,65 +210,40 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, con
         </div>
       )}
 
-      {/* ── Browser (auto-loaded, controllers + subtrees) ── */}
-      <SectionHeader label="Browser" open={browserOpen} onToggle={() => setBrowserOpen((v) => !v)} />
+      {/* ── Subtrees (auto-loaded; controllers live in the activity-bar sidebar) ── */}
+      <SectionHeader label="Subtrees" open={browserOpen} onToggle={() => setBrowserOpen((v) => !v)} />
       {browserOpen && (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ padding: "4px 8px", flexShrink: 0 }}>
             <PaletteFilter value={browserFilter} onChange={setBrowserFilter} />
           </div>
 
-          {subtreeRefs === null && controllerRefs === null && (
+          {subtreeRefs === null && (
             <div style={{ padding: "6px 10px", opacity: 0.6, fontSize: 11 }}>Scanning workspace…</div>
           )}
 
           <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 8px" }}>
-            {/* AI Controllers */}
-            {filteredControllers.length > 0 && (
-              <>
-                <BrowserGroupLabel label="AI Controllers" />
-                {filteredControllers.map((c) => (
-                  <BrowserItem
-                    key={c.typePath}
-                    typePath={c.typePath}
-                    color={c.inherited ? "#FFB74D" : c.jsonPath ? "#F06292" : "#F44336"}
-                    inherited={c.inherited}
-                    onClick={() => onOpen(c.typePath, c.filePath, c.jsonPath, true, c.inherited)}
-                    onDoubleClick={() => onRevealType(c.typePath)}
-                  />
-                ))}
-              </>
-            )}
+            {filteredSubtrees.map((s) => (
+              <BrowserItem
+                key={s.typePath}
+                typePath={s.typePath}
+                color="#26C6DA"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/bt-node-kind", "subtree");
+                  e.dataTransfer.setData("application/bt-subtree-path", s.typePath);
+                  e.dataTransfer.effectAllowed = "copy";
+                }}
+                onClick={() => onOpen(s.typePath, s.filePath, s.jsonPath, true)}
+                onDoubleClick={() => onRevealType(s.typePath)}
+              />
+            ))}
 
-            {/* Subtrees */}
-            {filteredSubtrees.length > 0 && (
-              <>
-                <BrowserGroupLabel label="Subtrees" />
-                {filteredSubtrees.map((s) => (
-                  <BrowserItem
-                    key={s.typePath}
-                    typePath={s.typePath}
-                    color="#26C6DA"
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("application/bt-node-kind", "subtree");
-                      e.dataTransfer.setData("application/bt-subtree-path", s.typePath);
-                      e.dataTransfer.effectAllowed = "copy";
-                    }}
-                    onClick={() => onOpen(s.typePath, s.filePath, s.jsonPath, true)}
-                    onDoubleClick={() => onRevealType(s.typePath)}
-                  />
-                ))}
-              </>
+            {subtreeRefs !== null && filteredSubtrees.length === 0 && (
+              <div style={{ padding: "4px 6px", opacity: 0.5, fontSize: 11 }}>
+                {browserFilter ? "No matches." : "No subtrees found."}
+              </div>
             )}
-
-            {(subtreeRefs !== null || controllerRefs !== null) &&
-              filteredControllers.length === 0 &&
-              filteredSubtrees.length === 0 && (
-                <div style={{ padding: "4px 6px", opacity: 0.5, fontSize: 11 }}>
-                  {browserFilter ? "No matches." : "No controllers or subtrees found."}
-                </div>
-              )}
           </div>
         </div>
       )}
@@ -345,23 +314,6 @@ function PaletteFilter({
         fontSize: 11,
       }}
     />
-  );
-}
-
-function BrowserGroupLabel({ label }: { label: string }) {
-  return (
-    <div
-      style={{
-        fontSize: 10,
-        fontWeight: 600,
-        textTransform: "uppercase" as const,
-        opacity: 0.5,
-        padding: "6px 2px 2px",
-        letterSpacing: "0.05em",
-      }}
-    >
-      {label}
-    </div>
   );
 }
 

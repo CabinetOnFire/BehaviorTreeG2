@@ -46,6 +46,13 @@ export function activate(context: vscode.ExtensionContext) {
       BtEditorPanel.createOrShow(context, uri, typePath);
     }),
 
+    vscode.commands.registerCommand(
+      "bt-editor.open-controller",
+      (uri: vscode.Uri, typePath: string) => {
+        BtEditorPanel.openController(context, uri, typePath);
+      },
+    ),
+
     vscode.commands.registerCommand("bt-editor.refresh-browser", async () => {
       await browserProvider.doScan(BtEditorPanel.onScanComplete);
     }),

@@ -1,9 +1,7 @@
 import type { BtBindingDeclarations, BtNode } from "../../shared/types";
 import { COMPOSITE_SCHEMAS } from "../../shared/compositeSchema";
 
-// ---------------------------------------------------------------------------
 // Scalar conversion helpers — inverse of btJsonParser
-// ---------------------------------------------------------------------------
 
 /** Convert a BtNode scalar string back to an appropriate JSON value. */
 function stringToJsonScalar(v: string): string | number | boolean {
@@ -18,9 +16,7 @@ function configValueToJson(v: string | string[]): unknown {
   return stringToJsonScalar(v);
 }
 
-// ---------------------------------------------------------------------------
 // Recursive serializer
-// ---------------------------------------------------------------------------
 
 type JsonNode = Record<string, unknown>;
 
@@ -85,12 +81,14 @@ function serializeNode(node: BtNode): JsonNode {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 /** Serialize a BtNode AST to the JSON object used in .bt.json files. */
-export function serializeToJsonObject(node: BtNode, dmType?: string, bindings?: BtBindingDeclarations): JsonNode {
+export function serializeToJsonObject(
+  node: BtNode,
+  dmType?: string,
+  bindings?: BtBindingDeclarations,
+): JsonNode {
   const out = serializeNode(node);
   const prefix: JsonNode = {};
   if (dmType) prefix["dm_type"] = dmType;
@@ -99,6 +97,10 @@ export function serializeToJsonObject(node: BtNode, dmType?: string, bindings?: 
 }
 
 /** Serialize a BtNode AST to a formatted .bt.json string (tab-indented). */
-export function serializeToJsonString(node: BtNode, dmType?: string, bindings?: BtBindingDeclarations): string {
+export function serializeToJsonString(
+  node: BtNode,
+  dmType?: string,
+  bindings?: BtBindingDeclarations,
+): string {
   return JSON.stringify(serializeToJsonObject(node, dmType, bindings), null, "\t") + "\n";
 }
