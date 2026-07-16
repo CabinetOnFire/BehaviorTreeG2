@@ -3,6 +3,7 @@ import { Handle, Position } from "@xyflow/react";
 import { ChildOrderBadge } from "./ChildOrderBadge";
 import { useTypeVars, useResolveBinding } from "../../contexts/TypeVarsContext";
 import { shortTypePath } from "../../utils/typeDisplay";
+import { rowsFor } from "../../utils/nodeRows";
 
 interface LeafNodeData {
   behaviorType?: string;
@@ -16,24 +17,7 @@ export function LeafNode({ data }: { data: LeafNodeData }) {
   const short = data.behaviorType ? shortTypePath(resolveBinding(data.behaviorType)) : "(leaf)";
   const varDecls = typeVars?.[data.behaviorType ?? ""]?.vars ?? [];
   const config = data.vars ?? {};
-
-  type Row = { key: string; value: string; isDefault: boolean };
-  const rows: Row[] = [];
-
-  if (varDecls.length > 0) {
-    for (const v of varDecls) {
-      const val = config[v.name];
-      if (val !== undefined) {
-        rows.push({ key: v.name, value: Array.isArray(val) ? `[${val.length}]` : lastSegment(resolveBinding(val)), isDefault: false });
-      } else if (v.defaultValue !== "null") {
-        rows.push({ key: v.name, value: v.defaultValue, isDefault: true });
-      }
-    }
-  } else {
-    for (const [k, v] of Object.entries(config)) {
-      rows.push({ key: k, value: Array.isArray(v) ? `[${v.length}]` : lastSegment(resolveBinding(v)), isDefault: false });
-    }
-  }
+  const rows = rowsFor(config, varDecls, resolveBinding);
 
   return (
     <div
@@ -86,10 +70,4 @@ export function LeafNode({ data }: { data: LeafNodeData }) {
       </div>
     </div>
   );
-}
-
-function lastSegment(v: string): string {
-  const trimmed = v.trim();
-  const parts = trimmed.split("/").filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 1] : trimmed;
 }

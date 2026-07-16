@@ -2,6 +2,8 @@ import dagre from "@dagrejs/dagre";
 import type { Node, Edge } from "@xyflow/react";
 import type { BtNode } from "../../../shared/types";
 import { COMPOSITE_SCHEMAS } from "../../../shared/compositeSchema";
+import type { TypeVarsMap } from "../contexts/TypeVarsContext";
+import { rowsFor } from "../utils/nodeRows";
 
 export const ROOT_NODE_ID = "__root__";
 const ROOT_W = 80;
@@ -62,15 +64,24 @@ function collectNodes(
   return id;
 }
 
-function nodeSize(btNode: BtNode): { width: number; height: number } {
+/**
+ * Measure a node's rendered box. When `typeVars` is supplied, leaf/decorator height is computed
+ * from the same `rowsFor()`
+ */
+export function nodeSize(
+  btNode: BtNode,
+  typeVars?: TypeVarsMap | null,
+): { width: number; height: number } {
   const W = 220;
   switch (btNode.kind) {
     case "leaf": {
-      const n = Object.keys(btNode.vars).length;
+      const varDecls = typeVars?.[btNode.behaviorType]?.vars ?? [];
+      const n = rowsFor(btNode.vars, varDecls).length;
       return { width: W, height: n > 0 ? 34 + n * 18 : 52 };
     }
     case "decorator": {
-      const n = Object.keys(btNode.vars).length;
+      const varDecls = typeVars?.[btNode.nodeType]?.vars ?? [];
+      const n = rowsFor(btNode.vars, varDecls).length;
       return { width: W, height: 36 + (n > 0 ? n * 18 + 4 : 0) };
     }
     case "parallel":
@@ -124,7 +135,11 @@ function nodeData(btNode: BtNode): Record<string, unknown> {
   }
 }
 
-export function buildLayout(root: BtNode, includeRootStub = false): LayoutResult {
+export function buildLayout(
+  root: BtNode,
+  includeRootStub = false,
+  typeVars?: TypeVarsMap | null,
+): LayoutResult {
   nodeCounter = 0;
 
   const layoutNodes: LayoutNode[] = [];
@@ -143,7 +158,7 @@ export function buildLayout(root: BtNode, includeRootStub = false): LayoutResult
   }
 
   for (const ln of layoutNodes) {
-    const size = nodeSize(ln.btNode);
+    const size = nodeSize(ln.btNode, typeVars);
     g.setNode(ln.id, { width: size.width, height: size.height });
   }
 
@@ -215,7 +230,7 @@ export function buildLayout(root: BtNode, includeRootStub = false): LayoutResult
         maxX = -Infinity;
       for (const sid of allSubtreeIds(id)) {
         const ln2 = layoutNodes.find((n) => n.id === sid)!;
-        const sz = nodeSize(ln2.btNode);
+        const sz = nodeSize(ln2.btNode, typeVars);
         const pos = g.node(sid);
         if (pos.x - sz.width / 2 < minX) minX = pos.x - sz.width / 2;
         if (pos.x + sz.width / 2 > maxX) maxX = pos.x + sz.width / 2;
@@ -260,7 +275,7 @@ export function buildLayout(root: BtNode, includeRootStub = false): LayoutResult
 
   const nodes: Node[] = layoutNodes.map((ln) => {
     const pos = g.node(ln.id);
-    const size = nodeSize(ln.btNode);
+    const size = nodeSize(ln.btNode, typeVars);
     return {
       id: ln.id,
       type: nodeType(ln.btNode),

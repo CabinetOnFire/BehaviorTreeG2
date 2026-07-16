@@ -3,6 +3,7 @@ import { Handle, Position } from "@xyflow/react";
 import { ChildOrderBadge } from "./ChildOrderBadge";
 import { useTypeVars, useResolveBinding } from "../../contexts/TypeVarsContext";
 import { shortTypePath } from "../../utils/typeDisplay";
+import { rowsFor } from "../../utils/nodeRows";
 
 interface DecoratorNodeData {
   nodeType?: string;
@@ -16,24 +17,7 @@ export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
   const shortName = data.nodeType ? shortTypePath(resolveBinding(data.nodeType)) : "(decorator)";
   const params = typeVars?.[data.nodeType ?? ""]?.vars ?? [];
   const config = data.vars ?? {};
-
-  type Row = { key: string; value: string; isDefault: boolean };
-  const rows: Row[] = [];
-
-  if (params.length > 0) {
-    for (const p of params) {
-      const val = config[p.name];
-      if (val !== undefined) {
-        rows.push({ key: p.name, value: Array.isArray(val) ? `[${val.length}]` : lastSegment(resolveBinding(val)), isDefault: false });
-      } else if (p.defaultValue !== "null") {
-        rows.push({ key: p.name, value: p.defaultValue, isDefault: true });
-      }
-    }
-  } else {
-    for (const [k, v] of Object.entries(config)) {
-      rows.push({ key: k, value: Array.isArray(v) ? `[${v.length}]` : lastSegment(resolveBinding(v)), isDefault: false });
-    }
-  }
+  const rows = rowsFor(config, params, resolveBinding);
 
   return (
     <div
@@ -96,10 +80,4 @@ export function DecoratorNode({ data }: { data: DecoratorNodeData }) {
       <Handle type="source" position={Position.Bottom} style={{ background: "#607D8B" }} />
     </div>
   );
-}
-
-function lastSegment(v: string): string {
-  const trimmed = v.trim();
-  const parts = trimmed.split("/").filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 1] : trimmed;
 }
