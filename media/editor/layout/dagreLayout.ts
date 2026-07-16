@@ -139,6 +139,10 @@ export function buildLayout(
   root: BtNode,
   includeRootStub = false,
   typeVars?: TypeVarsMap | null,
+  sizeFn: (
+    btNode: BtNode,
+    typeVars?: TypeVarsMap | null,
+  ) => { width: number; height: number } = nodeSize,
 ): LayoutResult {
   nodeCounter = 0;
 
@@ -158,7 +162,7 @@ export function buildLayout(
   }
 
   for (const ln of layoutNodes) {
-    const size = nodeSize(ln.btNode, typeVars);
+    const size = sizeFn(ln.btNode, typeVars);
     g.setNode(ln.id, { width: size.width, height: size.height });
   }
 
@@ -230,7 +234,7 @@ export function buildLayout(
         maxX = -Infinity;
       for (const sid of allSubtreeIds(id)) {
         const ln2 = layoutNodes.find((n) => n.id === sid)!;
-        const sz = nodeSize(ln2.btNode, typeVars);
+        const sz = sizeFn(ln2.btNode, typeVars);
         const pos = g.node(sid);
         if (pos.x - sz.width / 2 < minX) minX = pos.x - sz.width / 2;
         if (pos.x + sz.width / 2 > maxX) maxX = pos.x + sz.width / 2;
@@ -275,7 +279,7 @@ export function buildLayout(
 
   const nodes: Node[] = layoutNodes.map((ln) => {
     const pos = g.node(ln.id);
-    const size = nodeSize(ln.btNode, typeVars);
+    const size = sizeFn(ln.btNode, typeVars);
     return {
       id: ln.id,
       type: nodeType(ln.btNode),
