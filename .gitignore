@@ -1,9 +1,5 @@
 node_modules/
-# Ignore dist contents rather than the directory itself: git will not descend into an
-# excluded directory, so a negation below would never be reconsidered.
 dist/*
-# GitHub runs an action straight from the repo with no install step, so this one bundle
-# has to be committed even though the rest of dist/ is build output.
 !dist/action.js
 *.vsix
 .DS_Store

@@ -26,14 +26,10 @@ async function main() {
     format: "iife",
     globalName: "BtEditor",
     define: {
-      "process.env.NODE_ENV": JSON.stringify(
-        watch ? "development" : "production"
-      ),
+      "process.env.NODE_ENV": JSON.stringify(watch ? "development" : "production"),
     },
   });
 
-  // dist/action.js is committed, since GitHub runs an action straight from the repo with
-  // no install step. No sourcemap: it would double the size of a checked-in artifact.
   const actionCtx = await esbuild.context({
     ...sharedConfig,
     sourcemap: false,
