@@ -26,21 +26,45 @@ async function main() {
     format: "iife",
     globalName: "BtEditor",
     define: {
-      "process.env.NODE_ENV": JSON.stringify(
-        watch ? "development" : "production"
-      ),
+      "process.env.NODE_ENV": JSON.stringify(watch ? "development" : "production"),
     },
   });
 
+  const actionCtx = await esbuild.context({
+    ...sharedConfig,
+    sourcemap: false,
+    entryPoints: ["src/action/index.ts"],
+    outfile: "dist/action.js",
+    platform: "node",
+    format: "cjs",
+  });
+
+  const cliCtx = await esbuild.context({
+    ...sharedConfig,
+    entryPoints: ["src/cli/index.ts"],
+    outfile: "dist/bt-diff.js",
+    platform: "node",
+    format: "cjs",
+  });
+
+  const localPublishCtx = await esbuild.context({
+    ...sharedConfig,
+    entryPoints: ["src/action/localPublish.ts"],
+    outfile: "dist/local-publish.js",
+    platform: "node",
+    format: "cjs",
+  });
+
+  const contexts = [extensionCtx, webviewCtx, actionCtx, cliCtx, localPublishCtx];
+
   if (watch) {
-    await extensionCtx.watch();
-    await webviewCtx.watch();
+    await Promise.all(contexts.map((ctx) => ctx.watch()));
     console.log("[esbuild] watching...");
   } else {
-    await extensionCtx.rebuild();
-    await extensionCtx.dispose();
-    await webviewCtx.rebuild();
-    await webviewCtx.dispose();
+    for (const ctx of contexts) {
+      await ctx.rebuild();
+      await ctx.dispose();
+    }
     console.log("[esbuild] build complete");
   }
 }

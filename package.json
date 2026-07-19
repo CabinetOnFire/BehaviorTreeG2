@@ -137,11 +137,15 @@
     "compile": "tsc --noEmit && node .esbuild.config.js",
     "watch": "node .esbuild.config.js --watch",
     "test": "jest",
-    "lint": "eslint src media/editor shared --ext .ts,.tsx",
+    "lint": "eslint src media/editor shared tests --ext .ts,.tsx",
+    "cli": "node dist/bt-diff.js",
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",
+    "@octokit/core": "^7.0.6",
+    "@octokit/plugin-paginate-rest": "^14.0.0",
+    "@octokit/plugin-rest-endpoint-methods": "^17.0.0",
     "@xyflow/react": "^12.3.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

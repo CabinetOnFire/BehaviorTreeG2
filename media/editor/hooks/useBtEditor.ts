@@ -262,7 +262,7 @@ export function useBtEditor() {
 
         const treeNodes = btTreeNodes(s.nodes);
         let root = sub.root;
-        let newPendingGroups = [...s.pendingGroups];
+        const newPendingGroups = [...s.pendingGroups];
         const removedNodeIds = new Set<string>();
         const removedEdgeIds = new Set<string>();
 
@@ -602,7 +602,7 @@ export function useBtEditor() {
 
           const snap = snapshot(s);
           let childBtNode: BtNode | null = null;
-          let newPendingGroups = [...s.pendingGroups];
+          const newPendingGroups = [...s.pendingGroups];
           const removedNodeIds = new Set<string>();
           const removedEdgeIds = new Set<string>();
           let oldRootBt = sub.root;
@@ -681,7 +681,7 @@ export function useBtEditor() {
         if (!isComposite(parentBt) && parentBt.kind !== "decorator") return s;
 
         let childBtNode: BtNode | null = null;
-        let newPendingGroups = [...s.pendingGroups];
+        const newPendingGroups = [...s.pendingGroups];
         const removedNodeIds = new Set<string>();
         const removedEdgeIds = new Set<string>();
         let treeRoot = sub.root;
