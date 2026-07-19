@@ -1,0 +1,40 @@
+{
+	"dm_type": "/datum/bt_node/subtree/simple_example",
+	"type": "selector",
+	"children": [
+		{
+			"type": "sequence",
+			"children": [
+				{
+					"type": "leaf",
+					"behavior": "/datum/bt_node/ai_behavior/find_target",
+					"vars": {
+						"range": 12
+					}
+				},
+				{
+					"type": "decorator",
+					"decorator": "/datum/bt_node/decorator/inverter",
+					"vars": {
+						"invert": true
+					},
+					"child": {
+						"type": "leaf",
+						"behavior": "/datum/bt_node/ai_behavior/flee",
+						"vars": {}
+					}
+				}
+			]
+		},
+		{
+			"type": "leaf",
+			"behavior": "/datum/bt_node/ai_behavior/idle",
+			"vars": {}
+		},
+		{
+			"type": "leaf",
+			"behavior": "/datum/bt_node/ai_behavior/scream",
+			"vars": {}
+		}
+	]
+}

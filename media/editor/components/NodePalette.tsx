@@ -32,7 +32,6 @@ export function NodePalette({ postMessage, behaviors, typeVars, subtreeRefs, onO
   // Auto-load subtrees and behaviors on mount
   useEffect(() => {
     postMessage({ type: "load_subtrees" });
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fires once on mount
   }, []);
 
   const handleToggleBehaviors = () => {

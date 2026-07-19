@@ -177,13 +177,13 @@ export function buildLayout(
   // Enforce left-to-right ordering: child with siblingIndex 0 must be leftmost.
   // Dagre may assign positions in wrong order; fix by shifting entire subtrees.
   {
-    function subtreeIds(id: string): string[] {
+    const subtreeIds = (id: string): string[] => {
       const result: string[] = [id];
       for (const ln of layoutNodes) {
         if (ln.parentId === id) result.push(...subtreeIds(ln.id));
       }
       return result;
-    }
+    };
 
     for (const ln of layoutNodes) {
       // Only fix composite nodes whose direct (non-decorator) children have siblingIndex
@@ -218,7 +218,7 @@ export function buildLayout(
     const GAP = 20;
 
     const _subtreeIdCache = new Map<string, string[]>();
-    function allSubtreeIds(id: string): string[] {
+    const allSubtreeIds = (id: string): string[] => {
       const cached = _subtreeIdCache.get(id);
       if (cached) return cached;
       const result: string[] = [id];
@@ -227,9 +227,9 @@ export function buildLayout(
       }
       _subtreeIdCache.set(id, result);
       return result;
-    }
+    };
 
-    function subtreeBounds(id: string): { minX: number; maxX: number } {
+    const subtreeBounds = (id: string): { minX: number; maxX: number } => {
       let minX = Infinity,
         maxX = -Infinity;
       for (const sid of allSubtreeIds(id)) {
@@ -240,15 +240,15 @@ export function buildLayout(
         if (pos.x + sz.width / 2 > maxX) maxX = pos.x + sz.width / 2;
       }
       return { minX, maxX };
-    }
+    };
 
-    function shiftSubtree(id: string, dx: number) {
+    const shiftSubtree = (id: string, dx: number): void => {
       if (Math.abs(dx) < 0.01) return;
       for (const sid of allSubtreeIds(id)) {
         const pos = g.node(sid);
         g.setNode(sid, { ...pos, x: pos.x + dx });
       }
-    }
+    };
 
     // Reversed DFS pre-order = bottom-up: children processed before their parent.
     for (const ln of [...layoutNodes].reverse()) {

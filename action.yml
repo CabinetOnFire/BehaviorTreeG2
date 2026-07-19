@@ -1,0 +1,21 @@
+name: "Behavior tree diff"
+description: "Renders visual diffs of changed .bt.json behavior trees and posts them as a pull request comment"
+
+inputs:
+  mode:
+    description: '"render" to render diffs into the output directory, "publish" to upload them and comment'
+    required: true
+  token:
+    description: "Token used to read the pull request, and in publish mode to post the comment"
+    required: true
+  file-house-key:
+    description: "file.house API key used to host the rendered images. Required in publish mode"
+    required: false
+  directory:
+    description: "Directory rendered diffs are written to, and read back from"
+    required: false
+    default: "bt-diff-out"
+
+runs:
+  using: "node24"
+  main: "dist/action.js"
