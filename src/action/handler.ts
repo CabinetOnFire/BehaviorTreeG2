@@ -96,7 +96,9 @@ export async function publishDiffComment(
     for (const file of result.files) {
       if (file.svg) {
         const url = await host.upload(`${file.path.replace(/[^\w.-]/g, "_")}.svg`, Buffer.from(file.svg), "image/svg+xml");
-        sections.push(`### \`${file.path}\`\n![diff](${url})`);
+        sections.push(
+          `### \`${file.path}\`\n<details>\n<summary>Show diff</summary>\n\n![diff](${url})\n\n</details>`,
+        );
       } else {
         sections.push(`### \`${file.path}\`\n${file.note}`);
       }
