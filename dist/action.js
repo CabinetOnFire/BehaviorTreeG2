@@ -3657,7 +3657,7 @@ var require_dist = __commonJS({
 
 // src/action/inputs.ts
 function getInput(name) {
-  return (process.env[`INPUT_${name.replace(/-/g, "_").toUpperCase()}`] ?? "").trim();
+  return (process.env[`INPUT_${name.replace(/ /g, "_").toUpperCase()}`] ?? "").trim();
 }
 function requireInput(name) {
   const value = getInput(name);
