@@ -4616,8 +4616,8 @@ function renderNode(n, typeVars, resolveBinding, diffOf) {
     g += `<text x="${width - 8}" y="12" font-size="9" font-weight="700" fill="rgba(200,200,200,0.5)" text-anchor="end">${n.data.childIndex + 1}</text>`;
   }
   if (s.badge) {
-    g += `<circle cx="10" cy="10" r="8" fill="${s.border}"/>`;
-    g += `<text x="10" y="13" font-size="10" font-weight="700" text-anchor="middle" fill="#111">${s.badge}</text>`;
+    g += `<circle cx="${width - 10}" cy="${height - 10}" r="8" fill="${s.border}"/>`;
+    g += `<text x="${width - 10}" y="${height - 7}" font-size="10" font-weight="700" text-anchor="middle" fill="#111">${s.badge}</text>`;
   }
   g += "</g>";
   return g;
