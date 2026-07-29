@@ -26,6 +26,7 @@ import { ROOT_NODE_ID } from "./layout/dagreLayout";
 import { NodePalette } from "./components/NodePalette";
 import { NodeConfigPanel } from "./components/NodeConfigPanel";
 import { useBtEditor } from "./hooks/useBtEditor";
+import { observerAbortTargets } from "./utils/observerAbort";
 import type { BtNode } from "../../shared/types";
 import {
   BT_PARALLEL_FAILURE_CHILD_ONE,
@@ -304,6 +305,30 @@ function BtEditorInner() {
   const selectedIsPending = selectedNode?.id.startsWith("pending-") ?? false;
 
   const activeSub = state.subtrees[state.activeIndex];
+  const observerTargets = observerAbortTargets(
+    state.nodes,
+    state.edges,
+    selectedBtNode?.kind === "decorator" ? selectedNode?.id : undefined,
+    state.typeVars,
+    activeSub?.bindings,
+  );
+  const displayNodes = state.nodes.map((node) => {
+    const highlightColor = observerTargets.self.has(node.id)
+      ? "#38bdf8"
+      : observerTargets.lowerPriority.has(node.id)
+        ? "#f97316"
+        : undefined;
+    return highlightColor
+      ? {
+          ...node,
+          style: {
+            ...node.style,
+            boxShadow: `0 0 0 3px ${highlightColor}, 0 0 14px ${highlightColor}99`,
+            borderRadius: 5,
+          },
+        }
+      : node;
+  });
 
   return (
     <TypeVarsContext.Provider value={state.typeVars}>
@@ -433,6 +458,22 @@ function BtEditorInner() {
                 </button>
               </div>
             )}
+            {observerTargets.mode !== "none" && (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  padding: "4px 12px",
+                  fontSize: 11,
+                  background: "var(--vscode-editor-inactiveSelectionBackground, #264f78)",
+                  color: "var(--vscode-editor-foreground, #ccc)",
+                  flexShrink: 0,
+                }}
+              >
+                {observerTargets.self.size > 0 && <span style={{ color: "#38bdf8" }}>■ Self abort</span>}
+                {observerTargets.lowerPriority.size > 0 && <span style={{ color: "#f97316" }}>■ Lower-priority abort</span>}
+              </div>
+            )}
             {/* Main canvas row */}
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
               <NodePalette
@@ -451,7 +492,7 @@ function BtEditorInner() {
                   onDrop={onDrop}
                 >
                   <ReactFlow
-                    nodes={state.nodes}
+                    nodes={displayNodes}
                     edges={state.edges}
                     nodeTypes={nodeTypes}
                     onNodesChange={onNodesChange}
